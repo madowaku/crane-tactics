@@ -1,0 +1,1 @@
+{"name":"CraneTactics.PlayMode","references":["CraneTactics.Runtime","CraneTactics.Rules","Unity.InputSystem"],"optionalUnityReferences":["TestAssemblies"]}

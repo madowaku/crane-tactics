@@ -1,0 +1,1 @@
+{"name":"CraneTactics.Runtime","rootNamespace":"CraneTactics","references":["CraneTactics.Rules","Unity.InputSystem"]}

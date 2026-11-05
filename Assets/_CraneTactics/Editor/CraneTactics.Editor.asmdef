@@ -1,0 +1,1 @@
+{"name":"CraneTactics.Editor","references":["CraneTactics.Runtime","CraneTactics.Rules"],"includePlatforms":["Editor"]}

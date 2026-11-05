@@ -1,0 +1,65 @@
+{
+  "origin": "Original procedural Blender study meshes for CRANE TACTICS",
+  "generator": "Blender 5.2.1 LTS",
+  "units": "metres",
+  "format": "FBX",
+  "reference": "Owner Knight reference retained locally, excluded from git",
+  "verification_boundary": "File SHA-256 and byte count only; Unity scale/axis/runtime evidence is recorded separately",
+  "files": [
+    {
+      "path": "ArtSource/create_toys.py",
+      "bytes": 7418,
+      "sha256": "f2ec4e157ba6b6e7f34d833d5e06a69824e84c2d08d2807961b22636175eda10"
+    },
+    {
+      "path": "ArtSource/toys.blend",
+      "bytes": 199313,
+      "sha256": "e35d4ff403eac4d098835863fa01375e9879efea3af1b5c656d35a0cf3809ab2"
+    },
+    {
+      "path": "Assets/_CraneTactics/Art/AxisProbe.fbx",
+      "bytes": 29628,
+      "sha256": "e70c5a4d8abf3e6a65e8828df60d573c1229357b13d0d03f5065ab868eedb863"
+    },
+    {
+      "path": "Assets/_CraneTactics/Art/Cabinet.fbx",
+      "bytes": 151324,
+      "sha256": "8aa9ec50d889c86ad3f12717bdbe0757b500f20543df1fb069a778a483d52372"
+    },
+    {
+      "path": "Assets/_CraneTactics/Art/Claw.fbx",
+      "bytes": 108828,
+      "sha256": "c37bb826d3136c542b1d1582878c136cd427d9c21674209f25a822013e79bad4"
+    },
+    {
+      "path": "Assets/_CraneTactics/Art/Guard.fbx",
+      "bytes": 104652,
+      "sha256": "5094fb1ed2c1c36d6b661e8dd881ba098224b469a9f914501e1874e108c963a8"
+    },
+    {
+      "path": "Assets/_CraneTactics/Art/Heavy.fbx",
+      "bytes": 103180,
+      "sha256": "cdec0bc6a7bb8928cf09ad4d3d7fd2a2a24c89043698c5580617e653d4cf25ec"
+    },
+    {
+      "path": "Assets/_CraneTactics/Art/Knight.fbx",
+      "bytes": 139580,
+      "sha256": "400729c29f3719224e96e9827e8eeb4195c6c2e300c57f42ab87d3d30074d6bc"
+    },
+    {
+      "path": "Assets/_CraneTactics/Art/ScaleProbe.fbx",
+      "bytes": 20108,
+      "sha256": "bb06d832b08499323f73959ca70725599524e1c25fb6f3daa9212ea12e5da1f7"
+    },
+    {
+      "path": "Assets/_CraneTactics/Art/Scout.fbx",
+      "bytes": 96636,
+      "sha256": "cf5d09cce1239a070b985a3d739f7fef09ac57a7ecacbfab9f139d76d7bf4535"
+    },
+    {
+      "path": "Assets/_CraneTactics/Art/Slimy.fbx",
+      "bytes": 77884,
+      "sha256": "a33d16377ff1b9d39a6a390325de8b977c7dc71fe17f60b28ecbae0bdabe643b"
+    }
+  ]
+}
