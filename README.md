@@ -64,3 +64,9 @@
 
 ここが気持ちよければ続行。
 気持ちよくなければ、RPGも成長要素も作らない。
+
+## Unity / Blenderへの引き継ぎ
+
+現在のOne Night体験・ブラウザStudy 03の仕様・3D化の実装順・受入条件は、
+[Codex handoff](docs/implementation/CODEX_HANDOFF.md) を参照してください。
+Unityプロジェクトと3Dモデルはこれから作成します。ローカルCodexでは、この文書と `AGENTS.md` を最初に読んで進めます。
