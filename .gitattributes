@@ -1,0 +1,10 @@
+# Unity serializes empty YAML values with a trailing space. Keep its byte format.
+*.meta whitespace=-blank-at-eol
+*.unity whitespace=-blank-at-eol
+*.prefab whitespace=-blank-at-eol
+*.asset whitespace=-blank-at-eol
+*.mat whitespace=-blank-at-eol
+*.wlt whitespace=-blank-at-eol
+*.fbx binary
+*.blend binary
+*.png binary

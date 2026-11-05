@@ -1,5 +1,16 @@
 # CRANE TACTICS 🏗️♟️
 
+## Unity試作
+
+Unity **6000.3.9f1 / URP** のOne Night試作を追加しました。`Assets/_CraneTactics/Scenes/OneNight.unity` を開いてPlay。Battle 1 → PrizeでSlimyを獲得 → Battle 2 → 3人のEndingまでつながります。
+
+- クリックで掴み、マウス移動で運び、クリック／Spaceで落とします。矢印／WASD、Esc一時停止にも対応。
+- [完成目標の画面と方針](docs/art-direction/VISION.md)
+- [環境・起動・コード構成](docs/implementation/UnityProjectContext.md)
+- [実装時の検証記録](docs/implementation/VALIDATION.md)
+
+以下は初期構想です。現在の採用仕様は[引き継ぎ](docs/implementation/CODEX_HANDOFF.md)を優先します。
+
 クレーンゲームの「つかむ技術」を、そのまま戦術ゲームの移動ルールにする実験。
 
 味方も敵も、盤上のユニットを直接歩かせるのではなく、クレーンでつかんで移動させる。

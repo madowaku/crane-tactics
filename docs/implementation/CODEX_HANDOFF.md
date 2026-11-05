@@ -43,6 +43,8 @@ Coordinates below are zero-based `(x,y)` from the back-left of the board. Map to
 | Scout | 1 | Solid enemy drop: 1 damage | 3 seconds |
 | Guard | 2 | Solid enemy drop: 1 damage | 3 seconds |
 
+Local prototype decision (2026-11-06 JST): the owner authorized balance changes during implementation. Battle 2 overrides Scout to **HP 2 / attack 2**; Battle 1 keeps Scout HP 1 / attack 1. This reconciles the two-drop reference below: Knight leaves Scout at 1 HP, Scout leaves Knight at 1 HP, then Heavy finishes. The original global HP 1 table would have ended Battle 2 after one Slimy drop. Default enemy attack is 1 otherwise.
+
 Timeout releases at the current position. Start its timer when grasping completes. Pause suspends the timer. Allow grabbing either side. Grabbing alone consumes no action; release commits the action, including a miss.
 
 Resolve in order: release → fall/settle → impact/pit → Knight adjacent attack → one enemy action → next selection. If victory/defeat occurs, transition once and cancel pending turn actions. Prevent repeated collision callbacks from dealing repeated damage.
