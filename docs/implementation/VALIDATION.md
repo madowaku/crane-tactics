@@ -1,5 +1,7 @@
 # One Night local validation
 
+For the v0.2 experimental branch and its separate A/B evidence, see [AUTO_RETURN_EXPERIMENT.md](AUTO_RETURN_EXPERIMENT.md). The counts below describe the original v0.1 baseline, not the latest experimental suite.
+
 This is a playable prototype, not a release or proof of the ideal concept's visual fidelity. Evidence is local under ignored `artifacts/`; no build has been published.
 
 ## Passed checks

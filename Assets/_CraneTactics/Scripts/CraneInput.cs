@@ -8,6 +8,7 @@ namespace CraneTactics
         public Vector2 Pointer => Mouse.current == null ? Vector2.zero : Mouse.current.position.ReadValue();
         public bool Action => (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame) || (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame);
         public bool Pause => Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
+        public bool Held => (Keyboard.current != null && Keyboard.current.spaceKey.isPressed) || (Mouse.current != null && Mouse.current.leftButton.isPressed);
         public bool KeyboardAction => Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame;
         public bool PointerMoved => Mouse.current != null && Mouse.current.delta.ReadValue().sqrMagnitude>0;
         public Vector2 Movement

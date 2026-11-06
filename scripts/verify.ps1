@@ -13,8 +13,10 @@ if($Mode -in @('EditMode','PlayMode')) {
     $method=if($Mode -eq 'Build'){'BuildWindows'}else{'CreateScene'}
     $unityArgs+=@('-quit','-executeMethod',"CraneTactics.Editor.BuildOneNight.$method")
 }
-& $Editor @unityArgs
-if($LASTEXITCODE -ne 0){throw "Unity exited with $LASTEXITCODE; see artifacts/$Mode.log"}
+$quotedArgs=$unityArgs | ForEach-Object { '"' + $_ + '"' }
+$process=Start-Process -FilePath $Editor -ArgumentList $quotedArgs -WindowStyle Hidden -PassThru
+$process.WaitForExit()
+if($process.ExitCode -ne 0){throw "Unity exited with $($process.ExitCode); see artifacts/$Mode.log"}
 if($Mode -in @('EditMode','PlayMode')) {
     [xml]$result=Get-Content (Join-Path $evidence "$Mode.xml")
     if($result.'test-run'.result -ne 'Passed'){throw 'Unity tests did not pass'}

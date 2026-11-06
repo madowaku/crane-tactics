@@ -39,6 +39,7 @@ namespace CraneTactics
             yield return new WaitForSeconds(1); yield return Capture("06-ending");
             game.NextCabinet(); Check(game.Board.Stage==0,"Replay");
             File.WriteAllText(Path.Combine(output,"result.txt"),failed?"FAILED":"PASSED: real crane / PhysX full loop. Programmatic selection; not human play or raycast evidence.");
+            game.ExportExperiment(Path.Combine(output,"input-results.jsonl"));
             Application.Quit(failed?1:0);
         }
         void Check(bool valid,string description) {if(!valid) failed=true; File.AppendAllText(Path.Combine(output,"timeline.txt"),$"{Time.time:F3} {(valid?"PASS":"FAIL")} {description}\n");}

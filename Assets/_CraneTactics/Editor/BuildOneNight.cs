@@ -22,6 +22,10 @@ namespace CraneTactics.Editor
         }
         public static void PrepareArt()
         {
+            const string routePath="Assets/_CraneTactics/Resources/RouteGuide.mat";
+            var routeMaterial=AssetDatabase.LoadAssetAtPath<Material>(routePath);
+            if(routeMaterial==null) {routeMaterial=new Material(Shader.Find("Universal Render Pipeline/Unlit")); AssetDatabase.CreateAsset(routeMaterial,routePath);}
+            routeMaterial.color=new Color(.2f,.8f,.75f); EditorUtility.SetDirty(routeMaterial);
             string art="Assets/_CraneTactics/Art/";
             var probe=AssetDatabase.LoadAssetAtPath<GameObject>(art+"ScaleProbe.fbx");
             if(probe==null) return;
