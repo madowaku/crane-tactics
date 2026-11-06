@@ -1,1 +1,1 @@
-{"name":"CraneTactics.EditMode","references":["CraneTactics.Rules"],"includePlatforms":["Editor"],"optionalUnityReferences":["TestAssemblies"]}
+{"name":"CraneTactics.EditMode","references":["CraneTactics.Rules","CraneTactics.Runtime"],"includePlatforms":["Editor"],"optionalUnityReferences":["TestAssemblies"]}

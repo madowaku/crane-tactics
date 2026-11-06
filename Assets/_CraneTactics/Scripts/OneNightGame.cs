@@ -6,7 +6,7 @@ using UnityEngine;
 namespace CraneTactics
 {
     public sealed class UnitView : MonoBehaviour { public Unit Unit; }
-    public sealed class OneNightGame : MonoBehaviour
+    public sealed partial class OneNightGame : MonoBehaviour
     {
         enum Motion { Selecting, Approaching, Lifting, Carrying, Falling, Result }
         readonly CraneInput controls=new CraneInput();
@@ -34,10 +34,11 @@ namespace CraneTactics
         public void Aim(Cell cell) {target=Position(cell,3.5f);}
         public void Grab(Unit unit)
         {
-            if(motion!=Motion.Selecting || !unit.Alive) return;
+            if(paused || motion!=Motion.Selecting || unit==null || !unit.Alive) return;
+            if(AutoReturn) {BeginAutoGrab(Position(unit.Cell)); return;}
             held=unit; pickup=held.Cell; target=Position(pickup,1.2f); motion=Motion.Approaching; elapsed=0;
         }
-        public void Drop() {if(motion==Motion.Carrying) Release();}
+        public void Drop() {if(!paused && motion==Motion.Carrying) Release();}
         public bool SelectAtScreenPosition(Vector2 position)
         {
             if(motion!=Motion.Selecting || paused) return false;
@@ -79,6 +80,7 @@ namespace CraneTactics
             if(world!=null) {world.gameObject.SetActive(false); Destroy(world.gameObject);}
             foreach(var material in materials) Destroy(material); materials.Clear(); actors.Clear();
             stage=value; board=BoardState.Create(stage); held=null; body=null; effect=null; celebrating=null; teamShown=false; motion=Motion.Selecting; paused=false; elapsed=quiet=carryTime=resultTime=0;
+            ApplyExperimentCase();
             world=new GameObject("OneNight Cabinet").transform;
             world.SetParent(transform,false);
             float n=board.Size, mid=(n-1)/2;
@@ -119,6 +121,7 @@ namespace CraneTactics
             target=new Vector3(mid,3.5f,mid); crane.Reset(target);
             view.transform.position=new Vector3(mid+4.5f,9,mid-12); view.transform.LookAt(new Vector3(mid,1.1f,mid)); view.orthographicSize=n==4?4.2f:4.8f;
             toast=stage==0?"Pick up a friend. Drop a plan.":stage==1?"Catch Slimy in the golden chute.":"A new friend. A new way to win.";
+            ResetExperiment();
         }
         void MakeUnit(Unit unit)
         {
@@ -140,6 +143,7 @@ namespace CraneTactics
             if(controls.Pause) PauseGame(!paused);
             if(paused) return;
             float dt=Mathf.Min(Time.deltaTime,.05f); elapsed+=dt;
+            TickExperiment(dt);
             if(effect!=null) {effectAge+=dt; effect.localScale=new Vector3(.5f+effectAge*2,.018f,.5f+effectAge*2); if(effectAge>.45f) {Destroy(effect.gameObject); effect=null;} }
             if(motion==Motion.Result)
             {
@@ -149,7 +153,7 @@ namespace CraneTactics
                 return;
             }
             var ray=view.ScreenPointToRay(controls.Pointer); var plane=new Plane(Vector3.up,Vector3.zero);
-            if(!Automation && (motion==Motion.Selecting || motion==Motion.Carrying))
+            if(!AutoReturn && !Automation && (motion==Motion.Selecting || motion==Motion.Carrying))
             {
                 var movement=controls.Movement;
                 if(movement.sqrMagnitude>0) keyboardMode=true;
@@ -158,7 +162,7 @@ namespace CraneTactics
                 else if(!keyboardMode && plane.Raycast(ray,out float distance)) {var p=ray.GetPoint(distance); target.x=p.x; target.z=p.z;}
                 target.x=Mathf.Clamp(target.x,0,board.Size-1); target.z=Mathf.Clamp(target.z,0,board.Size-1); target.y=3.5f;
             }
-            if(!Automation && motion==Motion.Selecting && controls.Action && (controls.KeyboardAction || !OverHud()))
+            if(!AutoReturn && !Automation && motion==Motion.Selecting && controls.Action && (controls.KeyboardAction || !OverHud()))
             {
                 if(controls.KeyboardAction) {var candidate=board.At(Grid(target)); if(candidate!=null) Grab(candidate);}
                 else SelectAtScreenPosition(controls.Pointer);
@@ -171,12 +175,12 @@ namespace CraneTactics
             footprint.localScale=new Vector3(.7f+crane.LoadVelocity.magnitude*.1f,.018f,.7f+crane.LoadVelocity.magnitude*.1f);
             pushArrow.gameObject.SetActive(motion==Motion.Carrying && held.Kind==Kind.Slimy);
             if(pushArrow.gameObject.activeSelf) {var d=BoardState.Push(crane.LoadVelocity.x,crane.LoadVelocity.z,pickup,Grid(prediction),NearRestThreshold); pushArrow.position=prediction+new Vector3(d.X,0,d.Y)*.55f; pushArrow.rotation=Quaternion.LookRotation(new Vector3(d.X,0,d.Y));}
-            if(motion==Motion.Approaching && Vector3.Distance(crane.Head,target)<.04f) {motion=Motion.Lifting; carryTime=0; target.y=3.5f; crane.Load=actors[held].transform.position; crane.LoadVelocity=Vector3.zero;}
+            if(motion==Motion.Approaching && Vector3.Distance(crane.Head,target)<.04f) {if(AutoReturn && !ResolveAutoGrab()) return; motion=Motion.Lifting; carryTime=0; target.y=3.5f; crane.Load=actors[held].transform.position; crane.LoadVelocity=Vector3.zero;}
             if(motion==Motion.Lifting || motion==Motion.Carrying)
             {
-                carryTime+=dt; actors[held].transform.position=crane.Load;
+                if(!AutoReturn || motion==Motion.Carrying) carryTime+=dt; actors[held].transform.position=crane.Load;
                 if(motion==Motion.Lifting && Vector3.Distance(crane.Head,target)<.04f) motion=Motion.Carrying;
-                if((!Automation && motion==Motion.Carrying && controls.Action && (controls.KeyboardAction || !OverHud())) || carryTime>=held.HoldSeconds) Release();
+                if((!Automation && motion==Motion.Carrying && controls.Action && (controls.KeyboardAction || !OverHud())) || carryTime>=HoldLimit) Release();
             }
             if(motion==Motion.Falling)
             {
@@ -194,17 +198,22 @@ namespace CraneTactics
         void Release()
         {
             token=board.CommitRelease(); if(token<0) return;
+            RecordExperiment(carryTime>=HoldLimit?"grip-break":"release");
             body=actors[held].GetComponent<Rigidbody>(); body.isKinematic=false; body.linearVelocity=crane.LoadVelocity; launchVelocity=crane.LoadVelocity; releaseVelocity=launchVelocity;
             motion=Motion.Falling; elapsed=quiet=0;
         }
         void Settle()
         {
-            var landing=Grid(body.position); body.linearVelocity=Vector3.zero; body.isKinematic=true;
+            var landing=AutoReturn && impactUnit!=null && impactUnit.Alive?impactUnit.Cell:Grid(body.position); body.linearVelocity=Vector3.zero; body.isKinematic=true;
             var direction=BoardState.Push(launchVelocity.x,launchVelocity.z,pickup,landing,NearRestThreshold);
-            board.Resolve(token,held,landing,direction); PlayTone(held.Kind==Kind.Heavy?90:420,.14f);
+            int captures=board.Captured.Count;
+            board.Resolve(token,held,landing,direction,AutoReturn); PlayTone(held.Kind==Kind.Heavy?90:420,.14f);
+            if(board.Captured.Count>captures) toast="PRIZE GET!  "+board.Captured.Last();
+            RecordExperiment(landing.Equals(board.Pit)?"capture":"settled");
             effect=Shape("Impact ripple",PrimitiveType.Cylinder,Position(landing,.035f),new Vector3(.5f,.018f,.5f),held.Kind==Kind.Slimy?new Color(.2f,.8f,.5f):gold,world).transform; effectAge=0;
             foreach(var pair in actors) {pair.Value.SetActive(pair.Key.Alive); if(pair.Key.Alive) pair.Value.transform.position=Position(pair.Key.Cell);}
             held=null; body=null; motion=board.Outcome==Outcome.Playing?Motion.Selecting:Motion.Result; elapsed=resultTime=0;
+            ResetAutoPick();
             if(board.Outcome==Outcome.Recruited) toast="GET!  Slimy joins the team.";
             else if(board.Outcome==Outcome.Victory) toast=stage==2?"Three friends. One unforgettable night.":"One more cabinet is still awake…";
             else if(board.Outcome==Outcome.Defeat) toast="A different drop could change everything.";
@@ -240,6 +249,7 @@ namespace CraneTactics
             if(board==null) return;
             if(title==null) {title=new GUIStyle(GUI.skin.label){fontSize=26,fontStyle=FontStyle.Bold,font=Font.CreateDynamicFontFromOSFont("Georgia",26)}; text=new GUIStyle(GUI.skin.label){fontSize=16}; small=new GUIStyle(GUI.skin.label){fontSize=13}; title.normal.textColor=cream; text.normal.textColor=cream; small.normal.textColor=cream;}
             GUI.color=Color.white;
+            DrawExperiment();
             GUI.Label(new Rect(24,18,360,36),"CRANE TACTICS",title);
             GUI.Label(new Rect(26,56,360,24),stage==1?"PRIZE CHANCE  /  A NEW FRIEND":$"MIDNIGHT SHIFT 0{(stage==0?1:2)}",small);
             GUI.Label(new Rect(Screen.width-290,98,270,25),stage==1?"CATCH SLIMY":$"{board.Units.Count(u=>u.Alive && u.Enemy)} RIVALS LEFT  ·  {board.Turns} DROPS",text);
@@ -249,8 +259,8 @@ namespace CraneTactics
                 GUI.color=cream; GUI.DrawTexture(new Rect(23,Screen.height-163,249,139),Texture2D.whiteTexture); GUI.color=Color.white;
                 text.normal.textColor=new Color(.08f,.2f,.21f); small.normal.textColor=new Color(.08f,.2f,.21f);
                 GUI.Label(new Rect(36,Screen.height-154,230,28),held==null?"YOUR NEXT MOVE":held.Kind.ToString().ToUpperInvariant(),text);
-                GUI.Label(new Rect(36,Screen.height-124,230,24),held==null?"Click a toy to grab":held.Kind==Kind.Slimy?"PUSH 1 TILE":$"IMPACT {held.Damage}",small);
-                GUI.Label(new Rect(36,Screen.height-98,230,24),held==null?"WASD / arrows + Space also work":float.IsInfinity(held.HoldSeconds)?"Let the swing settle…":$"HOLD  {Mathf.Max(0,held.HoldSeconds-carryTime):0.0}s",small);
+                GUI.Label(new Rect(36,Screen.height-124,230,24),held==null?(AutoReturn?PickHint:"Click a toy to grab"):held.Kind==Kind.Slimy?"PUSH 1 TILE":$"IMPACT {held.Damage}",small);
+                GUI.Label(new Rect(36,Screen.height-98,230,24),held==null?(AutoReturn?"Hold Space / left mouse":"WASD / arrows + Space also work"):float.IsInfinity(HoldLimit)?"Let the swing settle…":$"GRIP  {Mathf.Max(0,HoldLimit-carryTime):0.0}s",small);
                 GUI.Label(new Rect(36,Screen.height-66,230,24),stage==1?"Unlimited tries. Keep going.":"Next? "+board.Plan(),small);
                 text.normal.textColor=cream; small.normal.textColor=cream;
                 GUI.Label(new Rect(Screen.width/2-130,Screen.height-40,330,24),held==null?"One drop can change everything.":"Click / Space — release your plan.",small);

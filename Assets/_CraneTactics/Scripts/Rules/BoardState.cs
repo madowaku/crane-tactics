@@ -21,7 +21,8 @@ namespace CraneTactics.Rules
     {
         public string Id; public Kind Kind; public Cell Cell; public int Hp, Attack = 1;
         public bool Alive => Hp > 0;
-        public bool Enemy => Kind == Kind.Scout || Kind == Kind.Guard;
+        public bool Hostile;
+        public bool Enemy => Hostile || Kind == Kind.Scout || Kind == Kind.Guard;
         public int Damage => Kind == Kind.Slimy ? 0 : Kind == Kind.Heavy ? 2 : 1;
         public float HoldSeconds => Kind == Kind.Heavy ? 5 : Enemy ? 3 : float.PositiveInfinity;
     }
@@ -33,6 +34,7 @@ namespace CraneTactics.Rules
     public sealed class BoardState
     {
         public readonly List<Unit> Units = new List<Unit>();
+        public readonly List<Kind> Captured = new List<Kind>();
         public int Size, Stage, Turns, Revision; public Cell Pit; public Outcome Outcome;
         int pending; bool released;
         static readonly Cell[] Directions = {new Cell(0,-1),new Cell(0,1),new Cell(-1,0),new Cell(1,0)};
@@ -50,6 +52,18 @@ namespace CraneTactics.Rules
         bool Empty(Cell c,Unit except=null) => Inside(c) && !c.Equals(Pit) && At(c,except)==null;
         public int CommitRelease() { if(Outcome!=Outcome.Playing || released) return -1; released=true; Turns++; return ++pending; }
         public void CancelPending() { pending++; released=false; Revision++; }
+        // A failed grab is one committed action, with no phantom drop damage.
+        public bool ResolveMiss(int token,Unit contacted,Cell direction)
+        {
+            if(!released || token!=pending || Outcome!=Outcome.Playing) return false;
+            released=false;
+            if(contacted!=null && contacted.Alive && contacted.Kind!=Kind.Heavy)
+            {
+                var next=contacted.Cell+direction;
+                if(Inside(next) && At(next)==null) {if(next.Equals(Pit)) {Capture(contacted); if(Stage==1) Outcome=Outcome.Recruited;} else contacted.Cell=next;}
+            }
+            Finish(); return true;
+        }
         public static Cell Push(float vx,float vz,Cell pickup,Cell landing,float threshold)
         {
             if(vx*vx+vz*vz<threshold*threshold) {vx=landing.X-pickup.X; vz=landing.Y-pickup.Y;}
@@ -59,23 +73,24 @@ namespace CraneTactics.Rules
         {
             return Enumerable.Range(0,Size*Size).Select(i=>new Cell(i%Size,i/Size)).Where(p=>Empty(p,except)).OrderBy(p=>p.Distance(c)).ThenBy(p=>p.Y).ThenBy(p=>p.X).First();
         }
-        public bool Resolve(int token,Unit dropper,Cell landing,Cell direction)
+        void Capture(Unit unit) {if(unit.Enemy) Captured.Add(unit.Kind); unit.Hp=0;}
+        public bool Resolve(int token,Unit dropper,Cell landing,Cell direction,bool directionalImpact=false)
         {
             if(!released || token!=pending || Outcome!=Outcome.Playing || !dropper.Alive) return false;
             released=false; landing=new Cell(Math.Max(0,Math.Min(Size-1,landing.X)),Math.Max(0,Math.Min(Size-1,landing.Y)));
-            if(landing.Equals(Pit)) {dropper.Hp=0; if(Stage==1) Outcome=Outcome.Recruited;}
+            if(landing.Equals(Pit)) {Capture(dropper); if(Stage==1) Outcome=Outcome.Recruited;}
             else
             {
                 var target=At(landing,dropper);
                 if(target!=null && dropper.Kind==Kind.Slimy)
                 {
                     var pushed=landing+direction;
-                    if(Inside(pushed) && At(pushed,dropper)==null) { if(pushed.Equals(Pit)) target.Hp=0; else target.Cell=pushed; dropper.Cell=landing; }
+                    if(Inside(pushed) && At(pushed,dropper)==null) { if(pushed.Equals(Pit)) Capture(target); else target.Cell=pushed; dropper.Cell=landing; }
                     else dropper.Cell=Nearest(landing,dropper);
                 }
                 else
                 {
-                    if(target!=null) { target.Hp-=dropper.Damage; if(target.Alive) {var choices=Directions.Select(d=>landing+d).Where(c=>Empty(c,dropper)).ToList(); if(choices.Count>0) target.Cell=choices[0]; else {dropper.Cell=Nearest(landing,dropper); Finish(); return true;} } }
+                    if(target!=null) { target.Hp-=dropper.Damage; if(target.Alive) {var pushed=landing+direction; if(directionalImpact && Inside(pushed) && At(pushed,dropper)==null) {if(pushed.Equals(Pit)) Capture(target); else target.Cell=pushed;} else {var choices=Directions.Select(d=>landing+d).Where(c=>Empty(c,dropper)).ToList(); if(choices.Count>0) target.Cell=choices[0]; else {dropper.Cell=Nearest(landing,dropper); Finish(); return true;} } } }
                     dropper.Cell=landing;
                 }
             }
