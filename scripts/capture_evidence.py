@@ -35,6 +35,9 @@ manifest = dict(version=1, capture_id='crane-auto-return', session_id=root.name,
                             input_source='automated development playback', human_playtest=False,
                             commit=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip(),
                             dirty=bool(subprocess.check_output(['git','status','--porcelain'],text=True).strip())), media=media)
+player=Path('Builds/Windows/CraneTactics.exe')
+if player.is_file():
+    manifest['source']['player_exe_sha256']=hashlib.sha256(player.read_bytes()).hexdigest()
 (root/'capture.json').write_text(json.dumps(manifest,indent=2)+'\n')
 (root/'timeline.jsonl').write_text(''.join(json.dumps(e)+'\n' for e in events))
 if a.mgsf_source:

@@ -75,7 +75,9 @@ namespace CraneTactics
         void ResetExperiment()
         {
             routeLine=new GameObject("Return route").AddComponent<LineRenderer>(); routeLine.transform.SetParent(world);
-            routeLine.widthMultiplier=.065f; routeLine.sharedMaterial=Mat(new Color(.2f,.8f,.75f)); routeLine.sharedMaterial.shader=Shader.Find("Universal Render Pipeline/Unlit"); routeLine.sharedMaterial.color=new Color(.2f,.8f,.75f); routeLine.positionCount=3;
+            routeLine.widthMultiplier=.065f;
+            var routeMaterial=Resources.Load<Material>("RouteGuide");
+            routeLine.sharedMaterial=routeMaterial!=null?routeMaterial:Mat(new Color(.2f,.8f,.75f)); routeLine.positionCount=3;
             shadow=Shape("Claw ground shadow",PrimitiveType.Cylinder,Vector3.zero,new Vector3(.4f,.008f,.4f),teal,world).transform;
             foreach(var actor in actors.Values) actor.AddComponent<DropContact>().Game=this;
             fingers.Clear(); fingerPositions.Clear();
