@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace CraneTactics.Rules
 {
-    public enum Kind { Knight, Heavy, Slimy, Scout, Guard }
+    public enum Kind { Knight, Heavy, Slimy, Scout, Guard, Koromochi }
     public enum Outcome { Playing, Victory, Defeat, Recruited }
     public struct Cell : IEquatable<Cell>
     {
@@ -23,7 +23,7 @@ namespace CraneTactics.Rules
         public bool Alive => Hp > 0;
         public bool Hostile;
         public bool Enemy => Hostile || Kind == Kind.Scout || Kind == Kind.Guard;
-        public int Damage => Kind == Kind.Slimy ? 0 : Kind == Kind.Heavy ? 2 : 1;
+        public int Damage => Kind == Kind.Slimy || Kind == Kind.Koromochi ? 0 : Kind == Kind.Heavy ? 2 : 1;
         public float HoldSeconds => Kind == Kind.Heavy ? 5 : Enemy ? 3 : float.PositiveInfinity;
     }
     public sealed class Intent
@@ -82,7 +82,7 @@ namespace CraneTactics.Rules
             else
             {
                 var target=At(landing,dropper);
-                if(target!=null && dropper.Kind==Kind.Slimy)
+                if(target!=null && (dropper.Kind==Kind.Slimy || dropper.Kind==Kind.Koromochi))
                 {
                     var pushed=landing+direction;
                     if(Inside(pushed) && At(pushed,dropper)==null) { if(pushed.Equals(Pit)) Capture(target); else target.Cell=pushed; dropper.Cell=landing; }

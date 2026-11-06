@@ -29,6 +29,7 @@ namespace CraneTactics
         public void PauseGame(bool value)
         {
             paused=value;
+            if(!paused) waitForRelease=true;
             if(body!=null && motion==Motion.Falling) {body.isKinematic=paused; if(!paused) body.linearVelocity=releaseVelocity;}
         }
         public void Aim(Cell cell) {target=Position(cell,3.5f);}
@@ -37,6 +38,7 @@ namespace CraneTactics
             if(paused || motion!=Motion.Selecting || unit==null || !unit.Alive) return;
             if(AutoReturn) {BeginAutoGrab(Position(unit.Cell)); return;}
             held=unit; pickup=held.Cell; target=Position(pickup,1.2f); motion=Motion.Approaching; elapsed=0;
+            RecordExperiment("approach");
         }
         public void Drop() {if(!paused && motion==Motion.Carrying) Release();}
         public bool SelectAtScreenPosition(Vector2 position)
@@ -131,7 +133,8 @@ namespace CraneTactics
             var toy=Resources.Load<GameObject>("Toys/"+unit.Kind);
             if(toy!=null) {var visual=Instantiate(toy,root.transform); visual.transform.localPosition=new Vector3(0,-.4f,0); actors.Add(unit,root); return;}
             Color color=unit.Kind==Kind.Knight?cream:unit.Kind==Kind.Heavy?new Color(.68f,.27f,.15f):unit.Kind==Kind.Slimy?new Color(.28f,.8f,.59f):new Color(.3f,.35f,.48f);
-            var type=unit.Kind==Kind.Slimy?PrimitiveType.Sphere:unit.Kind==Kind.Knight?PrimitiveType.Capsule:PrimitiveType.Cube;
+            if(unit.Kind==Kind.Koromochi) color=new Color(.95f,.65f,.72f);
+            var type=unit.Kind==Kind.Slimy || unit.Kind==Kind.Koromochi?PrimitiveType.Sphere:unit.Kind==Kind.Knight?PrimitiveType.Capsule:PrimitiveType.Cube;
             Shape("Toy body",type,Vector3.zero,unit.Kind==Kind.Heavy?new Vector3(.78f,.8f,.72f):new Vector3(.6f,.65f,.6f),color,root.transform);
             if(unit.Kind==Kind.Knight) {Shape("Teal visor",PrimitiveType.Cube,new Vector3(0,.16f,-.27f),new Vector3(.43f,.13f,.12f),teal,root.transform); for(int i=0;i<12;i++) {float a=i*Mathf.PI/6; Shape("Golden ring",PrimitiveType.Sphere,new Vector3(Mathf.Cos(a)*.22f,.72f+Mathf.Sin(a)*.22f,0),Vector3.one*.095f,gold,root.transform);} }
             else {for(int i=-1;i<=1;i+=2) Shape("Eye",PrimitiveType.Sphere,new Vector3(i*.12f,.12f,-.3f),Vector3.one*.075f,Color.black,root.transform);}
@@ -280,8 +283,8 @@ namespace CraneTactics
                     if(GUI.Button(new Rect(x+45,y+100,330,45),action)) LoadStage(board.Outcome==Outcome.Defeat?stage:stage==2?0:stage+1);
                 }
             }
-            else if(elapsed<4 && motion==Motion.Selecting) GUI.Label(new Rect(26,90,650,30),toast,text);
+            else if(elapsed<4 && motion==Motion.Selecting) GUI.Label(new Rect(26,108,650,30),toast,text);
         }
-        void OnDestroy() {foreach(var material in materials) if(material!=null) Destroy(material);}
+        void OnDestroy() {foreach(var material in materials) if(material!=null) Destroy(material); if(floorMaterial!=null) Destroy(floorMaterial); if(softMaterial!=null) Destroy(softMaterial);}
     }
 }

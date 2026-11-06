@@ -32,6 +32,7 @@ public class AutoReturnFlowTests
         yield return Wait(()=>game.IsSelecting || game.IsResult);
         var guard=game.Board.Units.Single(u=>u.Kind==Kind.Guard);
         Assert.That(guard.Hp,Is.LessThan(3),"Physical enemy-on-enemy impact must damage guard");
+        Assert.That(game.Board.Captured,Does.Contain(Kind.Guard),"Heavy impact pushes surviving guard into chute");
         Assert.That(game.Board.Turns,Is.EqualTo(1));
         Assert.That(game.ExperimentLog.Any(x=>x.Contains("impact")),Is.True);
     }

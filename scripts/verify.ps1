@@ -14,7 +14,8 @@ if($Mode -in @('EditMode','PlayMode')) {
     $unityArgs+=@('-quit','-executeMethod',"CraneTactics.Editor.BuildOneNight.$method")
 }
 $quotedArgs=$unityArgs | ForEach-Object { '"' + $_ + '"' }
-$process=Start-Process -FilePath $Editor -ArgumentList $quotedArgs -WindowStyle Hidden -PassThru -Wait
+$process=Start-Process -FilePath $Editor -ArgumentList $quotedArgs -WindowStyle Hidden -PassThru
+$process.WaitForExit()
 if($process.ExitCode -ne 0){throw "Unity exited with $($process.ExitCode); see artifacts/$Mode.log"}
 if($Mode -in @('EditMode','PlayMode')) {
     [xml]$result=Get-Content (Join-Path $evidence "$Mode.xml")
