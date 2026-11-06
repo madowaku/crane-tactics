@@ -30,8 +30,16 @@ namespace CraneTactics
             Check(game.Board.Outcome==Outcome.Victory,"B Battle 2"); yield return new WaitForSeconds(1); yield return Capture("02-ending");
             game.LoadExperimentCase(1); yield return null; game.Grab(game.Board.Units.Single(u=>u.Kind==Kind.Heavy));
             yield return Wait(()=>game.IsCarrying); yield return Wait(()=>game.ClawPosition.x>=3.15f);
-            yield return Capture("03-release"); game.Drop(); yield return Wait(()=>game.IsSelecting || game.IsResult);
-            Check(game.Board.Units.Single(u=>u.Kind==Kind.Guard).Hp<3,"A enemy impact"); yield return Capture("04-impact");
+            yield return Capture("03-release"); game.Drop(); yield return Wait(()=>game.IsPresenting);
+            yield return new WaitForSeconds(.25f); yield return Capture("04a-push-moving");
+            yield return new WaitForSeconds(.3f); yield return Capture("04b-chute-fall");
+            yield return Wait(()=>game.IsSelecting || game.IsResult);
+            Check(game.Board.Units.Single(u=>u.Kind==Kind.Guard).Hp<3,"A enemy impact");
+            Check(game.Board.Outcome==Outcome.Victory && game.Board.Turns==1,"A early drop combo wins in one action"); yield return Capture("04-impact");
+            game.LoadExperimentCase(1); yield return null; yield return Catch(Kind.Heavy); yield return Catch(Kind.Guard);
+            Check(game.Board.Outcome==Outcome.Victory && game.Board.Turns==2,"A direct captures take two actions");
+            game.LoadExperimentCase(2); yield return null; yield return Catch(Kind.Guard);
+            Check(game.Board.Outcome==Outcome.Victory && game.Board.Turns==1,"B near-home direct capture wins in one action");
             game.LoadExperimentCase(3); yield return null; game.BeginAutoGrab(new Vector3(3.55f,0,2));
             yield return Wait(()=>game.IsSelecting || game.IsResult); Check(game.Board.Captured.Count==1,"C failed grab captures by push"); yield return Capture("05-contact-push");
             game.ExportExperiment(Path.Combine(output,"input-results.jsonl"));
