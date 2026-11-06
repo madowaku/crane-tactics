@@ -8,6 +8,51 @@ using UnityEngine.TestTools;
 
 public class AutoReturnFlowTests
 {
+    [UnityTest] public IEnumerator CaptureSlidesThenFallsWithoutRuleCallbacks()
+    {
+        game.LoadExperimentCase(3); var scout=game.Board.Units.Single(u=>u.Kind==Kind.Scout);
+        game.BeginAutoGrab(new Vector3(3.55f,0,2)); yield return Wait(()=>game.IsPresenting);
+        int revision=game.Board.Revision;
+        var actor=Object.FindObjectsByType<UnitView>(FindObjectsSortMode.None).Single(v=>v.Unit==scout).transform;
+        Assert.That(actor.gameObject.activeSelf,Is.True,"Captured toy stays visible for playback");
+        Assert.That(actor.position.x,Is.LessThan(4.2f));
+        game.Drop(); game.ObserveImpact(scout,game.Board.Units[0]);
+        game.PauseGame(true); Vector3 pausedPosition=actor.position; yield return new WaitForSeconds(.25f);
+        Assert.That(actor.position,Is.EqualTo(pausedPosition)); game.PauseGame(false);
+        bool slid=false, fell=false; var previous=actor.position;
+        float end=Time.time+3;
+        while(game.IsPresenting && Time.time<end)
+        {
+            yield return null; var next=actor.position;
+            Assert.That(Vector3.Distance(previous,next),Is.LessThan(.55f),"No one-cell teleport during playback");
+            slid|=next.x>4.3f && next.x<4.9f; fell|=next.y<.2f;
+            previous=next;
+        }
+        Assert.That(game.IsPresenting,Is.False); Assert.That(slid && fell,Is.True); Assert.That(game.Board.Revision,Is.EqualTo(revision));
+        Assert.That(game.Board.Turns,Is.EqualTo(1)); Assert.That(game.Board.Captured.Count,Is.EqualTo(1));
+    }
+    [UnityTest] public IEnumerator ResetDuringPresentationCancelsOldVisualAndTurn()
+    {
+        game.LoadExperimentCase(3); game.BeginAutoGrab(new Vector3(3.55f,0,2)); yield return Wait(()=>game.IsPresenting);
+        game.SetAutoReturn(true); yield return new WaitForSeconds(1.4f);
+        Assert.That(game.IsSelecting,Is.True); Assert.That(game.Board.Turns,Is.Zero);
+        Assert.That(game.Board.Captured,Is.Empty); Assert.That(game.Board.Units.All(u=>u.Alive),Is.True);
+    }
+    [UnityTest] public IEnumerator DirectCaptureIsReasonableNearHomeButHeavyComboSavesATurn()
+    {
+        game.LoadExperimentCase(1);
+        yield return Capture(Kind.Heavy);
+        Assert.That(game.Board.Outcome,Is.EqualTo(Outcome.Playing),"Holding removes Heavy but leaves Guard");
+        yield return Capture(Kind.Guard);
+        Assert.That(game.Board.Outcome,Is.EqualTo(Outcome.Victory)); Assert.That(game.Board.Turns,Is.EqualTo(2));
+        game.LoadExperimentCase(1); game.Grab(game.Board.Units.Single(u=>u.Kind==Kind.Heavy));
+        yield return Wait(()=>game.IsCarrying); yield return Wait(()=>game.ClawPosition.x>=3.15f); game.Drop();
+        yield return Wait(()=>game.IsSelecting || game.IsResult);
+        Assert.That(game.Board.Outcome,Is.EqualTo(Outcome.Victory),"Impact capture + Knight follow-up removes both enemies");
+        Assert.That(game.Board.Turns,Is.EqualTo(1));
+        game.LoadExperimentCase(2); yield return Capture(Kind.Guard);
+        Assert.That(game.Board.Outcome,Is.EqualTo(Outcome.Victory)); Assert.That(game.Board.Turns,Is.EqualTo(1));
+    }
     OneNightGame game;
     [UnitySetUp] public IEnumerator Setup() {game=new GameObject("AutoReturnTest").AddComponent<OneNightGame>(); game.Automation=true; yield return null; game.SetAutoReturn(true); yield return null;}
     [UnityTearDown] public IEnumerator Cleanup() {Object.Destroy(game.gameObject); yield return null;}

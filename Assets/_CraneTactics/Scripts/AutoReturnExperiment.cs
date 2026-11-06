@@ -53,7 +53,7 @@ namespace CraneTactics
         Transform shadow;
         int pickAxis, routeIndex;
         bool axisMoving, arrived, waitForRelease;
-        float gripLimit, grabQuality, arrivalTime;
+        float gripLimit, grabQuality, arrivalTime, contactAge;
         Unit impactUnit;
         Vector3 grabPoint;
         int experimentCase;
@@ -62,7 +62,7 @@ namespace CraneTactics
         {
             if(stage!=0 || experimentCase==0) return;
             board.Units.Clear(); board.Pit=new Cell(5,2); board.Add(Kind.Knight,1,4,3);
-            if(experimentCase==1) {board.Add(Kind.Heavy,1,2,3).Hostile=true; board.Add(Kind.Guard,4,2,3);}
+            if(experimentCase==1) {board.Units[0].Cell=new Cell(4,3); board.Units[0].Hp=2; board.Add(Kind.Heavy,1,2,1).Hostile=true; board.Add(Kind.Guard,4,2,3);}
             else if(experimentCase==2) board.Add(Kind.Guard,4,1,2);
             else if(experimentCase==3) {board.Add(Kind.Scout,4,2,1); board.Add(Kind.Guard,4,0,2);}
             else {board.Add(Kind.Koromochi,3,2,2); board.Add(Kind.Guard,4,2,2);}
@@ -74,6 +74,7 @@ namespace CraneTactics
         }
         void ResetExperiment()
         {
+            foreach(var u in board.Units) displayedHp[u]=u.Hp;
             routeLine=new GameObject("Return route").AddComponent<LineRenderer>(); routeLine.transform.SetParent(world);
             routeLine.widthMultiplier=.065f;
             var routeMaterial=Resources.Load<Material>("RouteGuide");
@@ -93,7 +94,7 @@ namespace CraneTactics
         }
         void ResetAutoPick()
         {
-            pickAxis=0; axisMoving=false; arrived=false; arrivalTime=0; impactUnit=null; waitForRelease=true;
+            pickAxis=0; axisMoving=false; arrived=false; arrivalTime=0; impactUnit=null; contactAge=0; waitForRelease=true;
             crane.Speed=3.2f;
             if(AutoReturn && motion==Motion.Selecting) target=new Vector3(0,3.5f,0);
         }
@@ -124,10 +125,9 @@ namespace CraneTactics
                 int before=board.Captured.Count;
                 board.ResolveMiss(board.CommitRelease(),held,direction);
                 RecordExperiment(held==null?"empty-miss":"contact-push");
-                foreach(var pair in actors) {pair.Value.SetActive(pair.Key.Alive); if(pair.Key.Alive) {pair.Value.transform.position=Position(pair.Key.Cell); if(pair.Key==held) pair.Value.transform.Rotate(0,35,0);} }
                 toast=held==null?"Empty claw. Try a different line.":"SLIP! The contact changed the board.";
                 if(board.Captured.Count>before) toast="PRIZE GET!  A missed grab pushed it into the chute.";
-                PlayTone(180,.12f); held=null; motion=board.Outcome==Outcome.Playing?Motion.Selecting:Motion.Result; elapsed=resultTime=0; ResetAutoPick(); return false;
+                PlayTone(180,.12f); BeginPresentation(); return false;
             }
             pickup=held.Cell; gripLimit=GripProfile.Seconds(held.Kind,grabQuality);
             returnRoute=new ReturnRoute(new Vector3(grabPoint.x,3.5f,grabPoint.z),Position(board.Pit,3.5f)); routeIndex=1;
@@ -135,7 +135,7 @@ namespace CraneTactics
         }
         void TickExperiment(float dt)
         {
-            routeLine.enabled=AutoReturn && motion!=Motion.Result;
+            routeLine.enabled=AutoReturn && motion!=Motion.Result && motion!=Motion.Presenting;
             clawOpen=Mathf.MoveTowards(clawOpen,motion==Motion.Lifting || motion==Motion.Carrying?0:1,dt*4);
             for(int i=0;i<fingers.Count;i++) {var p=fingerPositions[i]; fingers[i].localPosition=new Vector3(p.x*Mathf.Lerp(.75f,1.3f,clawOpen),p.y,p.z*Mathf.Lerp(.75f,1.3f,clawOpen));}
             shadow.gameObject.SetActive(motion!=Motion.Result); shadow.position=new Vector3(crane.Head.x,.016f,crane.Head.z);
@@ -144,7 +144,7 @@ namespace CraneTactics
             if(motion==Motion.Selecting && !Automation && !waitForRelease) PickInput(controls.Held && (controls.KeyboardAction || axisMoving || !OverHud()),dt);
             var preview=motion==Motion.Selecting?new ReturnRoute(target,Position(board.Pit,3.5f)):returnRoute;
             if(preview!=null) for(int i=0;i<3;i++) routeLine.SetPosition(i,new Vector3(preview.Points[i].x,.045f,preview.Points[i].z));
-            if(motion!=Motion.Carrying) return;
+            if(motion!=Motion.Carrying) {head.localRotation=Quaternion.identity; return;}
             crane.Speed=cabinetProfile.ReturnSpeed;
             if(!arrived)
             {
@@ -158,16 +158,17 @@ namespace CraneTactics
         public void ObserveImpact(Unit falling,Unit contacted)
         {
             if(!AutoReturn || motion!=Motion.Falling || held!=falling || contacted==null || contacted==held || impactUnit!=null) return;
-            impactUnit=contacted; RecordExperiment("impact");
+            impactUnit=contacted; contactAge=0; RecordExperiment("impact");
         }
         [Serializable] sealed class InputRecord
         {
-            public string mode,action,unit,phase,outcome,boardState; public float time,x,z,grip; public int stage,turn,revision;
+            public string mode,action,unit,contact,phase,outcome,boardState; public float time,x,z,grip; public int stage,turn,revision;
         }
         void RecordExperiment(string action)
         {
             var row=new InputRecord {mode=AutoReturn?"B":"A",action=action,unit=held?.Id??"",phase=motion.ToString(),time=Time.time,x=crane.Head.x,z=crane.Head.z,grip=GripRemaining,stage=stage,turn=board.Turns,revision=board.Revision};
             row.outcome=board.Outcome.ToString(); row.boardState=string.Join(";",board.Units.Select(u=>$"{u.Id}:{u.Kind}:{u.Cell}:{u.Hp}"));
+            row.contact=impactUnit?.Id??"";
             if(experimentLog.Count>=4096) experimentLog.RemoveAt(0);
             experimentLog.Add(JsonUtility.ToJson(row));
             switch(action)
@@ -196,19 +197,7 @@ namespace CraneTactics
                 if(GUI.Button(new Rect(24,310,245,32),"Koromochi: slippery round toy")) LoadExperimentCase(4);
                 if(GUI.Button(new Rect(24,350,245,32),cabinetProfile.Name+" floor (switch + restart)")) {cabinetProfile=cabinetProfile==CabinetProfile.Classic?CabinetProfile.Sweets:CabinetProfile.Classic; LoadStage(stage);}
             }
-            if(AutoReturn && held!=null && (motion==Motion.Carrying || motion==Motion.Lifting))
-            {
-                GUI.color=Color.black; GUI.DrawTexture(new Rect(Screen.width/2-100,Screen.height-65,200,10),Texture2D.whiteTexture);
-                GUI.color=GripRemaining/gripLimit<.25f?new Color(1,.3f,.15f):gold;
-                GUI.DrawTexture(new Rect(Screen.width/2-100,Screen.height-65,200*Mathf.Clamp01(GripRemaining/gripLimit),10),Texture2D.whiteTexture); GUI.color=Color.white;
-            }
-            if(AutoReturn && motion==Motion.Selecting && !paused)
-            {
-                var candidate=board.Units.Where(u=>u.Alive).OrderBy(u=>Vector2.Distance(new Vector2(u.Cell.X,u.Cell.Y),new Vector2(target.x,target.z))).FirstOrDefault();
-                float quality=candidate==null?0:GripProfile.Quality(candidate.Kind,Vector2.Distance(new Vector2(candidate.Cell.X,candidate.Cell.Y),new Vector2(target.x,target.z)));
-                string hint=quality>=.3f?$"{candidate.Kind}  ·  GRIP {GripProfile.Seconds(candidate.Kind,quality):0.0}s": "EDGE CONTACT / MISS";
-                GUI.Label(new Rect(Screen.width/2-140,Screen.height-90,340,25),hint,small);
-            }
+            if(AutoReturn && !paused && motion!=Motion.Result) DrawReturnHud();
         }
     }
 }

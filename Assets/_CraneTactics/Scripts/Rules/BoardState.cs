@@ -31,12 +31,33 @@ namespace CraneTactics.Rules
         public Unit Actor, Target; public Cell Destination; public bool Attacks;
         public override string ToString() => Actor == null ? "No enemy move" : Attacks ? $"{Actor.Kind} → {Target.Kind}" : $"{Actor.Kind} → {Destination}";
     }
+    // Read-only values from a completed rule phase. Playback never calls rules back.
+    public sealed class UnitPose
+    {
+        public readonly Unit Unit;
+        public readonly Cell Cell;
+        public readonly int Hp;
+        public readonly bool Captured;
+        public UnitPose(Unit unit,bool captured) {Unit=unit; Cell=unit.Cell; Hp=unit.Hp; Captured=captured;}
+    }
+    public sealed class ResolutionBeat
+    {
+        public readonly string Label;
+        public readonly Unit Actor, Target;
+        public readonly IReadOnlyList<UnitPose> Poses;
+        public ResolutionBeat(string label,Unit actor,Unit target,UnitPose[] poses) {Label=label; Actor=actor; Target=target; Poses=Array.AsReadOnly(poses);}
+    }
     public sealed class BoardState
     {
         public readonly List<Unit> Units = new List<Unit>();
         public readonly List<Kind> Captured = new List<Kind>();
         public int Size, Stage, Turns, Revision; public Cell Pit; public Outcome Outcome;
         int pending; bool released;
+        readonly List<ResolutionBeat> resolution=new List<ResolutionBeat>();
+        readonly HashSet<Unit> capturedThisAction=new HashSet<Unit>();
+        public IReadOnlyList<ResolutionBeat> Resolution => resolution.AsReadOnly();
+        void BeginResolution() {resolution.Clear(); capturedThisAction.Clear();}
+        void Beat(string label,Unit actor=null,Unit target=null) => resolution.Add(new ResolutionBeat(label,actor,target,Units.Select(u=>new UnitPose(u,capturedThisAction.Contains(u))).ToArray()));
         static readonly Cell[] Directions = {new Cell(0,-1),new Cell(0,1),new Cell(-1,0),new Cell(1,0)};
         public static BoardState Create(int stage)
         {
@@ -51,18 +72,19 @@ namespace CraneTactics.Rules
         public Unit At(Cell c, Unit except=null) => Units.FirstOrDefault(u=>u.Alive && u!=except && u.Cell.Equals(c));
         bool Empty(Cell c,Unit except=null) => Inside(c) && !c.Equals(Pit) && At(c,except)==null;
         public int CommitRelease() { if(Outcome!=Outcome.Playing || released) return -1; released=true; Turns++; return ++pending; }
-        public void CancelPending() { pending++; released=false; Revision++; }
+        public void CancelPending() { pending++; released=false; Revision++; BeginResolution(); }
         // A failed grab is one committed action, with no phantom drop damage.
         public bool ResolveMiss(int token,Unit contacted,Cell direction)
         {
             if(!released || token!=pending || Outcome!=Outcome.Playing) return false;
+            BeginResolution();
             released=false;
             if(contacted!=null && contacted.Alive && contacted.Kind!=Kind.Heavy)
             {
                 var next=contacted.Cell+direction;
                 if(Inside(next) && At(next)==null) {if(next.Equals(Pit)) {Capture(contacted); if(Stage==1) Outcome=Outcome.Recruited;} else contacted.Cell=next;}
             }
-            Finish(); return true;
+            Beat("contact",null,contacted); Finish(); return true;
         }
         public static Cell Push(float vx,float vz,Cell pickup,Cell landing,float threshold)
         {
@@ -73,11 +95,13 @@ namespace CraneTactics.Rules
         {
             return Enumerable.Range(0,Size*Size).Select(i=>new Cell(i%Size,i/Size)).Where(p=>Empty(p,except)).OrderBy(p=>p.Distance(c)).ThenBy(p=>p.Y).ThenBy(p=>p.X).First();
         }
-        void Capture(Unit unit) {if(unit.Enemy) Captured.Add(unit.Kind); unit.Hp=0;}
+        void Capture(Unit unit) {if(unit.Enemy) Captured.Add(unit.Kind); capturedThisAction.Add(unit); unit.Hp=0;}
         public bool Resolve(int token,Unit dropper,Cell landing,Cell direction,bool directionalImpact=false)
         {
             if(!released || token!=pending || Outcome!=Outcome.Playing || !dropper.Alive) return false;
+            BeginResolution();
             released=false; landing=new Cell(Math.Max(0,Math.Min(Size-1,landing.X)),Math.Max(0,Math.Min(Size-1,landing.Y)));
+            var impactTarget=At(landing,dropper);
             if(landing.Equals(Pit)) {Capture(dropper); if(Stage==1) Outcome=Outcome.Recruited;}
             else
             {
@@ -90,21 +114,21 @@ namespace CraneTactics.Rules
                 }
                 else
                 {
-                    if(target!=null) { target.Hp-=dropper.Damage; if(target.Alive) {var pushed=landing+direction; if(directionalImpact && Inside(pushed) && At(pushed,dropper)==null) {if(pushed.Equals(Pit)) Capture(target); else target.Cell=pushed;} else {var choices=Directions.Select(d=>landing+d).Where(c=>Empty(c,dropper)).ToList(); if(choices.Count>0) target.Cell=choices[0]; else {dropper.Cell=Nearest(landing,dropper); Finish(); return true;} } } }
+                    if(target!=null) { target.Hp-=dropper.Damage; if(target.Alive) {var pushed=landing+direction; if(directionalImpact && Inside(pushed) && At(pushed,dropper)==null) {if(pushed.Equals(Pit)) Capture(target); else target.Cell=pushed;} else {var choices=Directions.Select(d=>landing+d).Where(c=>Empty(c,dropper)).ToList(); if(choices.Count>0) target.Cell=choices[0]; else {dropper.Cell=Nearest(landing,dropper); Beat("impact",dropper,impactTarget); Finish(); return true;} } } }
                     dropper.Cell=landing;
                 }
             }
-            Finish(); return true;
+            Beat("impact",dropper,impactTarget); Finish(); return true;
         }
         void Finish()
         {
             Revision++;
             if(Stage==1 || CheckEnd()) return;
             var knight=Units.FirstOrDefault(u=>u.Alive && u.Kind==Kind.Knight);
-            if(knight!=null) {var target=Units.Where(u=>u.Alive && u.Enemy && u.Cell.Distance(knight.Cell)==1).OrderBy(u=>u.Hp).ThenBy(u=>u.Cell.Y).ThenBy(u=>u.Cell.X).FirstOrDefault(); if(target!=null) target.Hp--;}
+            if(knight!=null) {var target=Units.Where(u=>u.Alive && u.Enemy && u.Cell.Distance(knight.Cell)==1).OrderBy(u=>u.Hp).ThenBy(u=>u.Cell.Y).ThenBy(u=>u.Cell.X).FirstOrDefault(); if(target!=null) {target.Hp--; Beat("knight",knight,target);}}
             if(CheckEnd()) return;
             var plan=Plan();
-            if(plan.Actor!=null) { if(plan.Attacks) plan.Target.Hp-=plan.Actor.Attack; else plan.Actor.Cell=plan.Destination; }
+            if(plan.Actor!=null) { if(plan.Attacks) plan.Target.Hp-=plan.Actor.Attack; else plan.Actor.Cell=plan.Destination; Beat(plan.Attacks?"enemy-attack":"enemy-step",plan.Actor,plan.Attacks?plan.Target:null); }
             CheckEnd();
         }
         bool CheckEnd()

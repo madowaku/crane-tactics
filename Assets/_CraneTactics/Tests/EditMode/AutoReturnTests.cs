@@ -5,6 +5,34 @@ using UnityEngine;
 
 public class AutoReturnTests
 {
+    [Test] public void ResolutionKeepsImpactBeforeEnemyMoveAndRejectsDuplicate()
+    {
+        var b=BoardState.Create(0); b.Units.Clear(); b.Pit=new Cell(5,2);
+        b.Add(Kind.Knight,1,4,3); var heavy=b.Add(Kind.Heavy,1,2,3); heavy.Hostile=true;
+        var guard=b.Add(Kind.Guard,4,2,3); int token=b.CommitRelease();
+        b.Resolve(token,heavy,guard.Cell,new Cell(1,0),true);
+        var impact=b.Resolution[0];
+        Assert.That(impact.Label,Is.EqualTo("impact"));
+        Assert.That(System.Linq.Enumerable.Single(impact.Poses,p=>p.Unit==heavy).Cell,Is.EqualTo(new Cell(4,2)));
+        Assert.That(System.Linq.Enumerable.Single(impact.Poses,p=>p.Unit==guard).Captured,Is.True);
+        Assert.That(b.Resolution[1].Label,Is.EqualTo("enemy-step"));
+        Assert.That(b.Resolve(token,heavy,guard.Cell,new Cell(1,0),true),Is.False);
+        heavy.Cell=new Cell(0,0);
+        Assert.That(System.Linq.Enumerable.Single(impact.Poses,p=>p.Unit==heavy).Cell,Is.EqualTo(new Cell(4,2)),"Beat values must not follow later unit mutations");
+        b.CancelPending(); Assert.That(b.Resolution,Is.Empty);
+    }
+    [Test] public void BlockedContactHasNoCaptureBeatAndKnightFollowsImpact()
+    {
+        var b=BoardState.Create(2); var slimy=b.Units.Find(u=>u.Kind==Kind.Slimy);
+        var guard=b.Units.Find(u=>u.Kind==Kind.Guard); b.Pit=new Cell(5,5);
+        b.Add(Kind.Heavy,5,3,3);
+        b.Resolve(b.CommitRelease(),slimy,guard.Cell,new Cell(1,0),true);
+        Assert.That(guard.Cell,Is.EqualTo(new Cell(4,3)));
+        Assert.That(b.Resolution[0].Label,Is.EqualTo("impact"));
+        Assert.That(System.Linq.Enumerable.Any(b.Resolution[0].Poses,p=>p.Captured),Is.False);
+        Assert.That(b.Resolution[1].Label,Is.EqualTo("knight"));
+        Assert.That(b.Turns,Is.EqualTo(1));
+    }
     [Test] public void RouteLocksHorizontalBeforeDepth()
     {
         var r=new ReturnRoute(new Vector3(1,3.5f,4),new Vector3(5,0,2));

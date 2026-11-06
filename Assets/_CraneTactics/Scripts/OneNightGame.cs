@@ -8,7 +8,7 @@ namespace CraneTactics
     public sealed class UnitView : MonoBehaviour { public Unit Unit; }
     public sealed partial class OneNightGame : MonoBehaviour
     {
-        enum Motion { Selecting, Approaching, Lifting, Carrying, Falling, Result }
+        enum Motion { Selecting, Approaching, Lifting, Carrying, Falling, Presenting, Result }
         readonly CraneInput controls=new CraneInput();
         readonly CraneController crane=new CraneController();
         readonly Dictionary<Unit,GameObject> actors=new Dictionary<Unit,GameObject>();
@@ -25,6 +25,7 @@ namespace CraneTactics
         public bool IsCarrying => motion==Motion.Carrying;
         public bool IsSelecting => motion==Motion.Selecting;
         public bool IsResult => motion==Motion.Result;
+        public bool IsPresenting => motion==Motion.Presenting;
         public float CarrySeconds => carryTime;
         public void PauseGame(bool value)
         {
@@ -82,6 +83,7 @@ namespace CraneTactics
             if(world!=null) {world.gameObject.SetActive(false); Destroy(world.gameObject);}
             foreach(var material in materials) Destroy(material); materials.Clear(); actors.Clear();
             stage=value; board=BoardState.Create(stage); held=null; body=null; effect=null; celebrating=null; teamShown=false; motion=Motion.Selecting; paused=false; elapsed=quiet=carryTime=resultTime=0;
+            ClearPresentation();
             ApplyExperimentCase();
             world=new GameObject("OneNight Cabinet").transform;
             world.SetParent(transform,false);
@@ -109,7 +111,7 @@ namespace CraneTactics
             foreach(var u in board.Units) MakeUnit(u);
             head=Shape("Claw housing",PrimitiveType.Cylinder,Vector3.zero,new Vector3(.6f,.16f,.6f),gold,world).transform;
             var clawModel=Resources.Load<GameObject>("Toys/Claw");
-            if(clawModel!=null) {head.GetComponent<Renderer>().enabled=false; head.localScale=Vector3.one; Instantiate(clawModel,head);}
+            if(clawModel!=null) {head.GetComponent<Renderer>().enabled=false; head.localScale=Vector3.one*1.2f; Instantiate(clawModel,head);}
             else for(int i=0;i<3;i++) {float a=i*Mathf.PI*2/3; var finger=Shape("Claw finger",PrimitiveType.Cube,new Vector3(Mathf.Cos(a)*.3f,-.3f,Mathf.Sin(a)*.3f),new Vector3(.09f,.55f,.09f),cream,head); finger.transform.localRotation=Quaternion.Euler(Mathf.Sin(a)*-20,0,Mathf.Cos(a)*20);}
             cable=Shape("Suspension",PrimitiveType.Cylinder,Vector3.zero,new Vector3(.035f,1,.035f),teal,world).transform;
             footprint=Shape("Landing uncertainty",PrimitiveType.Cylinder,Vector3.zero,new Vector3(.85f,.018f,.85f),gold,world).transform;
@@ -146,6 +148,7 @@ namespace CraneTactics
             if(controls.Pause) PauseGame(!paused);
             if(paused) return;
             float dt=Mathf.Min(Time.deltaTime,.05f); elapsed+=dt;
+            TickCamera(dt);
             TickExperiment(dt);
             if(effect!=null) {effectAge+=dt; effect.localScale=new Vector3(.5f+effectAge*2,.018f,.5f+effectAge*2); if(effectAge>.45f) {Destroy(effect.gameObject); effect=null;} }
             if(motion==Motion.Result)
@@ -155,6 +158,7 @@ namespace CraneTactics
                 if(celebrating!=null) celebrating.localScale=Vector3.one*(1+Mathf.Sin(resultTime*3)*.035f);
                 return;
             }
+            if(motion==Motion.Presenting) {TickPresentation(dt); return;}
             var ray=view.ScreenPointToRay(controls.Pointer); var plane=new Plane(Vector3.up,Vector3.zero);
             if(!AutoReturn && !Automation && (motion==Motion.Selecting || motion==Motion.Carrying))
             {
@@ -171,7 +175,7 @@ namespace CraneTactics
                 else SelectAtScreenPosition(controls.Pointer);
             }
             crane.Tick(target,dt); head.position=crane.Head;
-            cable.position=new Vector3(crane.Head.x,(5+crane.Head.y)/2,crane.Head.z); cable.localScale=new Vector3(.035f,(5-crane.Head.y)/2,.035f);
+            cable.position=new Vector3(crane.Head.x,(5+crane.Head.y)/2,crane.Head.z); cable.localScale=new Vector3(.06f,(5-crane.Head.y)/2,.06f);
             footprint.gameObject.SetActive(motion==Motion.Carrying || motion==Motion.Selecting);
             var prediction=motion==Motion.Carrying?crane.Load+crane.LoadVelocity*.55f:target;
             prediction.x=Mathf.Clamp(prediction.x,0,board.Size-1); prediction.z=Mathf.Clamp(prediction.z,0,board.Size-1); prediction.y=.025f; footprint.position=prediction;
@@ -193,7 +197,8 @@ namespace CraneTactics
                 if(p.z<0 || p.z>board.Size-1) {p.z=Mathf.Clamp(p.z,0,board.Size-1); var v=body.linearVelocity; v.z*=-.5f; body.linearVelocity=v;}
                 body.position=p;
                 quiet=body.linearVelocity.sqrMagnitude<.03f?quiet+dt:0;
-                if(quiet>.15f || elapsed>=2 || p.y<-.2f) Settle();
+                if(impactUnit!=null) contactAge+=dt;
+                if(quiet>.15f || elapsed>=2 || p.y<-.2f || AutoReturn && impactUnit!=null && contactAge>.06f) Settle();
             }
         }
         bool OverHud() => controls.Pointer.y>Screen.height-100 || controls.Pointer.x>Screen.width-180 && controls.Pointer.y>Screen.height-200 || controls.Pointer.x<280 && controls.Pointer.y<170;
@@ -210,11 +215,18 @@ namespace CraneTactics
             var landing=AutoReturn && impactUnit!=null && impactUnit.Alive?impactUnit.Cell:Grid(body.position); body.linearVelocity=Vector3.zero; body.isKinematic=true;
             var direction=BoardState.Push(launchVelocity.x,launchVelocity.z,pickup,landing,NearRestThreshold);
             int captures=board.Captured.Count;
-            board.Resolve(token,held,landing,direction,AutoReturn); PlayTone(held.Kind==Kind.Heavy?90:420,.14f);
+            if(!board.Resolve(token,held,landing,direction,AutoReturn)) return;
+            PlayTone(held.Kind==Kind.Heavy?90:420,.14f);
             if(board.Captured.Count>captures) toast="PRIZE GET!  "+board.Captured.Last();
             RecordExperiment(landing.Equals(board.Pit)?"capture":"settled");
             effect=Shape("Impact ripple",PrimitiveType.Cylinder,Position(landing,.035f),new Vector3(.5f,.018f,.5f),held.Kind==Kind.Slimy?new Color(.2f,.8f,.5f):gold,world).transform; effectAge=0;
-            foreach(var pair in actors) {pair.Value.SetActive(pair.Key.Alive); if(pair.Key.Alive) pair.Value.transform.position=Position(pair.Key.Cell);}
+            if(AutoReturn) {BeginPresentation(); return;}
+            CompleteResolution();
+        }
+        void CompleteResolution()
+        {
+            foreach(var u in board.Units) displayedHp[u]=u.Hp;
+            foreach(var pair in actors) {pair.Value.SetActive(pair.Key.Alive); if(pair.Key.Alive) {pair.Value.transform.position=Position(pair.Key.Cell); pair.Value.transform.rotation=Quaternion.identity; pair.Value.transform.localScale=Vector3.one; pair.Value.GetComponent<Collider>().enabled=true;} }
             held=null; body=null; motion=board.Outcome==Outcome.Playing?Motion.Selecting:Motion.Result; elapsed=resultTime=0;
             ResetAutoPick();
             if(board.Outcome==Outcome.Recruited) toast="GET!  Slimy joins the team.";
@@ -255,8 +267,8 @@ namespace CraneTactics
             DrawExperiment();
             GUI.Label(new Rect(24,18,360,36),"CRANE TACTICS",title);
             GUI.Label(new Rect(26,56,360,24),stage==1?"PRIZE CHANCE  /  A NEW FRIEND":$"MIDNIGHT SHIFT 0{(stage==0?1:2)}",small);
-            GUI.Label(new Rect(Screen.width-290,98,270,25),stage==1?"CATCH SLIMY":$"{board.Units.Count(u=>u.Alive && u.Enemy)} RIVALS LEFT  ·  {board.Turns} DROPS",text);
-            if(!paused && motion!=Motion.Result)
+            GUI.Label(new Rect(Screen.width-290,98,270,25),stage==1?"CATCH SLIMY":$"{board.Units.Count(u=>VisibleHp(u)>0 && u.Enemy)} RIVALS LEFT  ·  {board.Turns} DROPS",text);
+            if(!paused && motion!=Motion.Result && !AutoReturn)
             {
                 GUI.color=gold; GUI.DrawTexture(new Rect(20,Screen.height-166,255,145),Texture2D.whiteTexture);
                 GUI.color=cream; GUI.DrawTexture(new Rect(23,Screen.height-163,249,139),Texture2D.whiteTexture); GUI.color=Color.white;
@@ -270,7 +282,7 @@ namespace CraneTactics
             }
             if(GUI.Button(new Rect(Screen.width-145,18,120,30),paused?"Resume [Esc]":"Pause [Esc]")) PauseGame(!paused);
             if(GUI.Button(new Rect(Screen.width-145,54,120,30),sound?"Sound: ON":"Sound: OFF")) {sound=!sound; if(!sound) audioSource.Stop();}
-            if(!teamShown) foreach(var pair in actors.Where(p=>p.Key.Alive)) {var point=view.WorldToScreenPoint(pair.Value.transform.position+Vector3.up*1.25f); var badge=new Rect(point.x-24,Screen.height-point.y,52,23); GUI.color=new Color(.035f,.1f,.12f,.9f); GUI.DrawTexture(badge,Texture2D.whiteTexture); GUI.color=pair.Key.Enemy?new Color(1,.58f,.5f):Color.white; GUI.Label(new Rect(point.x-20,Screen.height-point.y,70,25),new string('♥',pair.Key.Hp),text);} GUI.color=Color.white;
+            if(!teamShown) foreach(var pair in actors.Where(p=>p.Value.activeSelf)) {int hp=VisibleHp(pair.Key); if(hp<=0 || AutoReturn && pair.Key==held && (motion==Motion.Carrying || motion==Motion.Lifting)) continue; var point=view.WorldToScreenPoint(pair.Value.transform.position+Vector3.up*1.25f); var badge=new Rect(point.x-24,Screen.height-point.y,52,23); GUI.color=new Color(.035f,.1f,.12f,.9f); GUI.DrawTexture(badge,Texture2D.whiteTexture); GUI.color=pair.Key.Enemy?new Color(1,.58f,.5f):Color.white; GUI.Label(new Rect(point.x-20,Screen.height-point.y,70,25),new string('♥',hp),text);} GUI.color=Color.white;
             if(paused || motion==Motion.Result)
             {
                 float x=Screen.width/2-210,y=paused?Screen.height/2-95:Screen.height-210; GUI.Box(new Rect(x,y,420,190),"");

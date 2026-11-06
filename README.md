@@ -8,6 +8,7 @@ Unity **6000.3.9f1 / URP** のOne Night試作を追加しました。`Assets/_Cr
 - [完成目標の画面と方針](docs/art-direction/VISION.md)
 - [環境・起動・コード構成](docs/implementation/UnityProjectContext.md)
 - [実装時の検証記録](docs/implementation/VALIDATION.md)
+- EscでA（自由運搬）／B（自動帰還）を切り替えます。[自動帰還の操作](docs/implementation/AUTO_RETURN_EXPERIMENT.md)・[押し出し／画面改善と最新検証](docs/implementation/AUTO_RETURN_READABILITY.md)
 
 以下は初期構想です。現在の採用仕様は[引き継ぎ](docs/implementation/CODEX_HANDOFF.md)を優先します。
 
@@ -80,4 +81,4 @@ Unity **6000.3.9f1 / URP** のOne Night試作を追加しました。`Assets/_Cr
 
 現在のOne Night体験・ブラウザStudy 03の仕様・3D化の実装順・受入条件は、
 [Codex handoff](docs/implementation/CODEX_HANDOFF.md) を参照してください。
-Unityプロジェクトと3Dモデルはこれから作成します。ローカルCodexでは、この文書と `AGENTS.md` を最初に読んで進めます。
+Unityプロジェクトと試作3Dモデルは実装済みです。実装を続ける際は、現在の[環境・起動情報](docs/implementation/UnityProjectContext.md)と `AGENTS.md` も参照してください。
