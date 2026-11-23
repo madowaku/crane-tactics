@@ -4,11 +4,12 @@
 
 Unity **6000.3.9f1 / URP** のOne Night試作を追加しました。`Assets/_CraneTactics/Scenes/OneNight.unity` を開いてPlay。Battle 1 → PrizeでSlimyを獲得 → Battle 2 → 3人のEndingまでつながります。
 
-- クリックで掴み、マウス移動で運び、クリック／Spaceで落とします。矢印／WASD、Esc一時停止にも対応。
+- 光る大型ボタンで遊びます。**1 →** を押し続けて離すと横位置が決まり、**2 ↑** を押し続けて離すと爪が降ります。掴んだら **← ↓ → ↑** の光るボタン（矢印キー／WASDも可）で好きな場所へ運び、赤い **DROP**（Space）で落とします。握力が切れるとその場で落ちます。金色の点が、今の握力で届くマスです。Escで一時停止します。
+- 一時停止の ARCADE FLOOR、または各筐体クリア後に SWEETS / MAGNET LAB / GUM FACTORY / JACKPOT へ進めます。[筐体・地形・戦術の説明と検証](docs/implementation/ARCADE_CABINETS.md)
 - [完成目標の画面と方針](docs/art-direction/VISION.md)
 - [環境・起動・コード構成](docs/implementation/UnityProjectContext.md)
 - [実装時の検証記録](docs/implementation/VALIDATION.md)
-- EscでA（自由運搬）／B（自動帰還）を切り替えます。[自動帰還の操作](docs/implementation/AUTO_RETURN_EXPERIMENT.md)・[押し出し／画面改善と最新検証](docs/implementation/AUTO_RETURN_READABILITY.md)
+- マウスでの自由運搬（A）は一時停止メニューの LAB から切り替えられます。[旧・自動帰還の実験記録](docs/implementation/AUTO_RETURN_EXPERIMENT.md)・[押し出し／画面改善と最新検証](docs/implementation/AUTO_RETURN_READABILITY.md)
 
 以下は初期構想です。現在の採用仕様は[引き継ぎ](docs/implementation/CODEX_HANDOFF.md)を優先します。
 

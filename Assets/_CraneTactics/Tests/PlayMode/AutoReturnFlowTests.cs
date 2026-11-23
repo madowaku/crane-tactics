@@ -45,9 +45,7 @@ public class AutoReturnFlowTests
         Assert.That(game.Board.Outcome,Is.EqualTo(Outcome.Playing),"Holding removes Heavy but leaves Guard");
         yield return Capture(Kind.Guard);
         Assert.That(game.Board.Outcome,Is.EqualTo(Outcome.Victory)); Assert.That(game.Board.Turns,Is.EqualTo(2));
-        game.LoadExperimentCase(1); game.Grab(game.Board.Units.Single(u=>u.Kind==Kind.Heavy));
-        yield return Wait(()=>game.IsCarrying); yield return Wait(()=>game.ClawPosition.x>=3.15f); game.Drop();
-        yield return Wait(()=>game.IsSelecting || game.IsResult);
+        game.LoadExperimentCase(1); yield return ThrowHeavyAtGuard();
         Assert.That(game.Board.Outcome,Is.EqualTo(Outcome.Victory),"Impact capture + Knight follow-up removes both enemies");
         Assert.That(game.Board.Turns,Is.EqualTo(1));
         game.LoadExperimentCase(2); yield return Capture(Kind.Guard);
@@ -61,20 +59,22 @@ public class AutoReturnFlowTests
         float end=Time.time+timeout; while(!condition() && Time.time<end) yield return null;
         Assert.That(condition(),Is.True,"Auto-return state timed out");
     }
-    [UnityTest] public IEnumerator HoldToChuteCapturesExactlyOnce()
+    [UnityTest] public IEnumerator CarryToChuteCapturesExactlyOnce()
     {
-        var guard=game.Board.Units.Single(u=>u.Kind==Kind.Guard); game.Grab(guard);
-        yield return Wait(()=>game.IsCarrying); yield return Wait(()=>game.IsSelecting || game.IsResult);
+        var guard=game.Board.Units.Single(u=>u.Kind==Kind.Guard); yield return game.CarryHome(guard);
         Assert.That(guard.Alive,Is.False); Assert.That(game.Board.Turns,Is.EqualTo(1));
         Assert.That(game.ExperimentLog.Any(x=>x.Contains("capture")),Is.True);
     }
-    [UnityTest] public IEnumerator EnemyHeavyCanHitEnemyOnReturn()
+    // Carry the hostile Heavy east and let go on the move, so it hits the Guard heading for the chute.
+    IEnumerator ThrowHeavyAtGuard()
     {
-        game.LoadExperimentCase(1);
-        var heavy=game.Board.Units.Single(u=>u.Kind==Kind.Heavy); game.Grab(heavy);
-        yield return Wait(()=>game.IsCarrying);
-        yield return Wait(()=>game.ClawPosition.x>=3.15f,4); game.Drop();
+        var heavy=game.Board.Units.Single(u=>u.Kind==Kind.Heavy);
+        yield return game.PlayMove(new CraneMove {Unit=game.Board.Units.IndexOf(heavy),Landing=new Cell(4,2),Direction=new Cell(1,0)});
         yield return Wait(()=>game.IsSelecting || game.IsResult);
+    }
+    [UnityTest] public IEnumerator EnemyHeavyCanBeThrownAtAnEnemy()
+    {
+        game.LoadExperimentCase(1); yield return ThrowHeavyAtGuard();
         var guard=game.Board.Units.Single(u=>u.Kind==Kind.Guard);
         Assert.That(guard.Hp,Is.LessThan(3),"Physical enemy-on-enemy impact must damage guard");
         Assert.That(game.Board.Captured,Does.Contain(Kind.Guard),"Heavy impact pushes surviving guard into chute");
@@ -83,7 +83,7 @@ public class AutoReturnFlowTests
     }
     IEnumerator Capture(Kind kind)
     {
-        game.Grab(game.Board.Units.Single(u=>u.Kind==kind)); yield return Wait(()=>game.IsCarrying);
+        yield return game.CarryHome(game.Board.Units.Single(u=>u.Kind==kind));
         yield return Wait(()=>game.IsSelecting || game.IsResult);
     }
     [UnityTest] public IEnumerator AutoReturnFullOneNightLoop()

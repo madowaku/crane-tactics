@@ -21,7 +21,7 @@ namespace CraneTactics
         IEnumerator Start()
         {
             Directory.CreateDirectory(output); Directory.CreateDirectory(Path.Combine(output,"frames")); Time.captureFramerate=20; StartCoroutine(Frames()); yield return null;
-            game=FindFirstObjectByType<OneNightGame>(); game.Automation=true;
+            game=FindFirstObjectByType<OneNightGame>(); game.Automation=true; game.SetAutoReturn(false);
             yield return new WaitForSeconds(1);
             yield return Capture("01-first-shift");
             yield return Drop(Kind.Heavy,new Cell(3,3));

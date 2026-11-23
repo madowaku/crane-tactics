@@ -28,9 +28,10 @@ namespace CraneTactics
             yield return Catch(Kind.Slimy); Check(game.Board.Outcome==Outcome.Recruited,"Slimy recruitment");
             game.NextCabinet(); yield return null; yield return Catch(Kind.Guard); yield return Catch(Kind.Scout);
             Check(game.Board.Outcome==Outcome.Victory,"B Battle 2"); yield return new WaitForSeconds(1); yield return Capture("02-ending");
-            game.LoadExperimentCase(1); yield return null; game.Grab(game.Board.Units.Single(u=>u.Kind==Kind.Heavy));
-            yield return Wait(()=>game.IsCarrying); yield return Wait(()=>game.ClawPosition.x>=3.15f);
-            yield return Capture("03-release"); game.Drop(); yield return Wait(()=>game.IsPresenting);
+            game.LoadExperimentCase(1); yield return null; var heavy=game.Board.Units.Single(u=>u.Kind==Kind.Heavy);
+            StartCoroutine(game.PlayMove(new CraneMove {Unit=game.Board.Units.IndexOf(heavy),Landing=new Cell(4,2),Direction=new Cell(1,0)}));
+            yield return Wait(()=>game.IsCarrying); yield return Wait(()=>game.ClawPosition.x>=2.4f || !game.IsCarrying);
+            yield return Capture("03-carry"); yield return Wait(()=>game.IsPresenting);
             yield return new WaitForSeconds(.25f); yield return Capture("04a-push-moving");
             yield return new WaitForSeconds(.3f); yield return Capture("04b-chute-fall");
             yield return Wait(()=>game.IsSelecting || game.IsResult);
@@ -42,11 +43,37 @@ namespace CraneTactics
             Check(game.Board.Outcome==Outcome.Victory && game.Board.Turns==1,"B near-home direct capture wins in one action");
             game.LoadExperimentCase(3); yield return null; game.BeginAutoGrab(new Vector3(3.55f,0,2));
             yield return Wait(()=>game.IsSelecting || game.IsResult); Check(game.Board.Captured.Count==1,"C failed grab captures by push"); yield return Capture("05-contact-push");
+            yield return Cabinets();
             game.ExportExperiment(Path.Combine(output,"input-results.jsonl"));
             File.WriteAllText(Path.Combine(output,"result.txt"),failed?"FAILED":"PASSED: automated Unity PhysX; not human playtest.");
             yield return new WaitForSeconds(.3f); Application.Quit(failed?1:0);
         }
-        IEnumerator Catch(Kind kind) {game.Grab(game.Board.Units.Single(u=>u.Kind==kind)); yield return Wait(()=>game.IsCarrying); yield return Wait(()=>game.IsSelecting || game.IsResult);}
+        // Plays each new cabinet by reading the landing ring, photographing the real rendered deck and board.
+        IEnumerator Cabinets()
+        {
+            game.OpenFloor(true); yield return new WaitForSeconds(.3f); yield return Capture("10-arcade-floor"); game.OpenFloor(false);
+            foreach(int stage in new[]{3,4,5,6,7,8,9})
+            {
+                game.LoadStageForTests(stage); yield return new WaitForSeconds(.7f); yield return Capture($"20-stage{stage}-waiting");
+                int step=0;
+                foreach(var move in BoardSolver.ReferenceLines[stage])
+                {
+                    if(game.Board.Outcome!=Outcome.Playing) break;
+                    var unit=game.Board.Units[move.Unit];
+                    string plan=$"{unit.Kind} {unit.Cell}->{move.Landing} dir {move.Direction}";
+                    StartCoroutine(game.PlayMove(move));
+                    if(!move.Contact) {yield return Wait(()=>game.IsCarrying); yield return new WaitForSeconds(.45f); if(step==0) yield return Capture($"21-stage{stage}-carry");}
+                    yield return WaitLong(()=>game.IsPresenting || game.IsSelecting || game.IsResult);
+                    if(step==0) {yield return new WaitForSeconds(.2f); yield return Capture($"22-stage{stage}-beat");}
+                    yield return WaitLong(()=>game.IsSelecting || game.IsResult); step++;
+                    File.AppendAllText(Path.Combine(output,"timeline.txt"),$"{Time.time:F3} MOVE stage {stage} {plan} landed {game.LastLanding} dir {game.LastDirection}\n");
+                }
+                Check(game.Board.Outcome==(game.Board.IsPrize?Outcome.Recruited:Outcome.Victory) && game.Board.Turns==game.Board.Par,$"Stage {stage} par {game.Board.Par} reached");
+                yield return new WaitForSeconds(1.4f); yield return Capture($"23-stage{stage}-result");
+            }
+        }
+        IEnumerator WaitLong(Func<bool> condition) {float end=Time.time+20; while(!condition() && Time.time<end) yield return null; Check(condition(),"state reached");}
+        IEnumerator Catch(Kind kind) {yield return game.CarryHome(game.Board.Units.Single(u=>u.Kind==kind)); yield return Wait(()=>game.IsSelecting || game.IsResult);}
         IEnumerator Wait(Func<bool> condition) {float end=Time.time+12; while(!condition() && Time.time<end) yield return null; Check(condition(),"state reached");}
         void Check(bool value,string label) {if(!value) failed=true; File.AppendAllText(Path.Combine(output,"timeline.txt"),$"{Time.time:F3} {(value?"PASS":"FAIL")} {label}\n");}
         IEnumerator Frames() {int frame=0; while(true) {yield return new WaitForEndOfFrame(); ScreenCapture.CaptureScreenshot(Path.Combine(output,"frames",$"{frame++:D5}.png"));}}

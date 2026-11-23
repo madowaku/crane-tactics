@@ -41,7 +41,7 @@ namespace CraneTactics.Editor
             if(Vector3.Distance(positiveX.position,Vector3.right)>.02f || Vector3.Distance(front.position,Vector3.back)>.02f) throw new System.Exception("FBX orientation contract failed");
             Object.DestroyImmediate(axis);
             System.IO.Directory.CreateDirectory("Assets/_CraneTactics/Resources/Toys");
-            foreach(var name in new[]{"Knight","Heavy","Slimy","Scout","Guard","Cabinet","Claw"})
+            foreach(var name in new[]{"Knight","Heavy","Slimy","Scout","Guard","Koromochi","Petapetan","Clockwork","Cabinet","Claw"})
             {
                 var model=AssetDatabase.LoadAssetAtPath<GameObject>(art+name+".fbx"); if(model==null) continue;
                 var toy=Object.Instantiate(model); toy.name=name;

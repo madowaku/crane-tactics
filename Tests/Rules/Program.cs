@@ -8,8 +8,26 @@ static class Program
     static void Check(bool ok,string name) {if(!ok) throw new Exception(name); passed++; Console.WriteLine("PASS "+name);}
     static Unit Get(BoardState b,Kind k)=>b.Units.First(u=>u.Kind==k);
     static void Drop(BoardState b,Kind k,Cell c,Cell? direction=null) {Check(b.Resolve(b.CommitRelease(),Get(b,k),c,direction??new Cell(1,0)),"release resolves"); Check(b.Units.Where(u=>u.Alive).Select(u=>u.Cell).Distinct().Count()==b.Units.Count(u=>u.Alive),"unique cells");}
-    static void Main()
+    static void Report(int[] args)
     {
+        foreach(var stage in args)
+        {
+            var watch=System.Diagnostics.Stopwatch.StartNew();
+            var b=BoardState.Create(stage); float speed=CabinetCatalog.ForStage(stage).ReturnSpeed;
+            // Exhaustive to depth 3 proves "no shorter line"; deeper pars are shown by a found line.
+            var r=BoardSolver.Solve(b,speed,3);
+            int fewest=r.Fewest; var line=r.Line;
+            for(int depth=4;fewest<0 && depth<=5;depth++) {line=BoardSolver.FindLine(b,speed,depth); if(line!=null) fewest=depth;}
+            int trick=-1; for(int depth=Math.Max(1,fewest);trick<0 && depth<=Math.Max(1,fewest)+1;depth++) if(BoardSolver.FindLine(b,speed,depth,true)!=null) trick=depth;
+            var rush=BoardSolver.HomeRush(b,speed);
+            var random=BoardSolver.RandomWinRate(b,speed,300,stage+11);
+            Console.WriteLine($"stage {stage} prize={b.IsPrize} par={b.Par} fewest={fewest} trick={trick} firstMoves={(r.Fewest>0?r.WinningFirstMoves.ToString():"-")} rush={rush.Outcome}/{rush.Turns} random={random:P0} states={r.States} {watch.Elapsed.TotalSeconds:0}s");
+            if(line!=null) Console.WriteLine("  ["+stage+"]=new[]{"+string.Join(",",line.Select(m=>m.Contact?$"new CraneMove{{Unit={m.Unit},Direction=new Cell({m.Direction.X},{m.Direction.Y}),Contact=true}}":$"new CraneMove{{Unit={m.Unit},Landing=new Cell({m.Landing.X},{m.Landing.Y}),Direction=new Cell({m.Direction.X},{m.Direction.Y})}}"))+"},");
+        }
+    }
+    static void Main(string[] args)
+    {
+        if(args.Length>0 && args[0]=="--report") {Report(args.Skip(1).Select(int.Parse).ToArray()); return;}
         var b=BoardState.Create(2);
         Drop(b,Kind.Slimy,new Cell(4,3));
         Check(!Get(b,Kind.Guard).Alive,"Slimy pushes Guard into pit");

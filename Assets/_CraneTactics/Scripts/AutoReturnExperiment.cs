@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,31 +8,14 @@ using UnityEngine;
 
 namespace CraneTactics
 {
-    // A reusable route is data, not a second board. Only BoardState commits outcomes.
-    public sealed class ReturnRoute
-    {
-        public readonly Vector3[] Points;
-        public ReturnRoute(Vector3 start, Vector3 chute)
-        {
-            Points=new[]{start,new Vector3(chute.x,start.y,start.z),new Vector3(chute.x,start.y,chute.z)};
-        }
-        public float Length => Vector3.Distance(Points[0],Points[1])+Vector3.Distance(Points[1],Points[2]);
-    }
-    public static class GripProfile
-    {
-        public static float Quality(Kind kind, float offset)
-        {
-            float radius=kind==Kind.Koromochi?.24f:kind==Kind.Heavy?.38f:kind==Kind.Slimy?.48f:.55f;
-            return Mathf.Clamp01(1-offset/radius);
-        }
-        public static float Seconds(Kind kind,float quality) =>
-            (kind==Kind.Koromochi?1.2f:kind==Kind.Heavy?2f:kind==Kind.Slimy?5f:3.8f)*Mathf.Lerp(.65f,1.6f,Mathf.Clamp01(quality));
-    }
     public sealed class DropContact : MonoBehaviour
     {
         public OneNightGame Game;
         void OnCollisionEnter(Collision collision) {Game?.ObserveImpact(GetComponent<UnitView>().Unit,collision.collider.GetComponent<UnitView>()?.Unit);}
     }
+    // Button cabinet play (mode B, historically "auto return"): two lit buttons aim the claw, then the
+    // player carries the toy anywhere with the direction buttons until DROP or until the grip gives out.
+    // Only BoardState commits outcomes.
     public sealed partial class OneNightGame
     {
         public bool AutoReturn {get;private set;}
@@ -41,19 +25,20 @@ namespace CraneTactics
         public float HoldLimit => held==null?float.PositiveInfinity:AutoReturn?gripLimit:held.HoldSeconds;
         public IReadOnlyList<string> ExperimentLog => experimentLog;
         public event Action<ClawEvent,Unit> ClawActivity;
-        CabinetProfile cabinetProfile=CabinetProfile.Classic;
+        CabinetProfile cabinetProfile=CabinetProfile.Classic, cabinetOverride;
         PhysicsMaterial floorMaterial;
         PhysicsMaterial softMaterial;
         readonly List<Transform> fingers=new List<Transform>();
         readonly List<Vector3> fingerPositions=new List<Vector3>();
         float clawOpen;
         readonly List<string> experimentLog=new List<string>();
-        ReturnRoute returnRoute;
-        LineRenderer routeLine;
+        readonly Dictionary<Cell,Transform> reachMarkers=new Dictionary<Cell,Transform>();
         Transform shadow;
-        int pickAxis, routeIndex;
-        bool axisMoving, arrived, waitForRelease;
-        float gripLimit, grabQuality, arrivalTime, contactAge;
+        int pickAxis;
+        bool axisMoving, waitForRelease;
+        Vector3? steerGoal;
+        public Vector2Int SteerDirection {get;private set;}
+        float gripLimit, grabQuality, contactAge;
         Unit impactUnit;
         Vector3 grabPoint;
         int experimentCase;
@@ -70,15 +55,18 @@ namespace CraneTactics
 
         public void SetAutoReturn(bool enabled)
         {
-            experimentCase=0; AutoReturn=enabled; LoadStage(0); RecordExperiment("mode-reset");
+            experimentCase=0; cabinetOverride=null; AutoReturn=enabled; LoadStage(0); RecordExperiment("mode-reset");
         }
         void ResetExperiment()
         {
             foreach(var u in board.Units) displayedHp[u]=u.Hp;
-            routeLine=new GameObject("Return route").AddComponent<LineRenderer>(); routeLine.transform.SetParent(world);
-            routeLine.widthMultiplier=.065f;
-            var routeMaterial=Resources.Load<Material>("RouteGuide");
-            routeLine.sharedMaterial=routeMaterial!=null?routeMaterial:Mat(new Color(.2f,.8f,.75f)); routeLine.positionCount=3;
+            reachMarkers.Clear();
+            var reachMaterial=Unlit(new Color(1,.78f,.3f));
+            for(int y=0;y<board.Size;y++) for(int x=0;x<board.Size;x++)
+            {
+                var marker=Shape("Grip reach",PrimitiveType.Cylinder,Position(new Cell(x,y),.03f),new Vector3(.2f,.006f,.2f),gold,world).transform;
+                marker.GetComponent<Renderer>().sharedMaterial=reachMaterial; marker.gameObject.SetActive(false); reachMarkers[new Cell(x,y)]=marker;
+            }
             shadow=Shape("Claw ground shadow",PrimitiveType.Cylinder,Vector3.zero,new Vector3(.4f,.008f,.4f),teal,world).transform;
             foreach(var actor in actors.Values) actor.AddComponent<DropContact>().Game=this;
             fingers.Clear(); fingerPositions.Clear();
@@ -89,12 +77,13 @@ namespace CraneTactics
             floorMaterial=new PhysicsMaterial(cabinetProfile.Name) {dynamicFriction=cabinetProfile.FloorFriction,staticFriction=cabinetProfile.FloorFriction,bounciness=cabinetProfile.Bounce,frictionCombine=PhysicsMaterialCombine.Minimum};
             softMaterial=new PhysicsMaterial("Soft toy") {dynamicFriction=.25f,staticFriction=.25f,bounciness=.45f,bounceCombine=PhysicsMaterialCombine.Maximum};
             foreach(var col in world.GetComponentsInChildren<Collider>()) if(col.name.StartsWith("Cell ")) col.sharedMaterial=floorMaterial;
-            if(AutoReturn) foreach(var pair in actors) if(pair.Key.Kind==Kind.Slimy || pair.Key.Kind==Kind.Koromochi) pair.Value.GetComponent<Collider>().sharedMaterial=softMaterial;
+            if(AutoReturn) foreach(var pair in actors) if(pair.Key.Kind==Kind.Slimy || pair.Key.Kind==Kind.Koromochi || pair.Key.Kind==Kind.Petapetan) pair.Value.GetComponent<Collider>().sharedMaterial=softMaterial;
             ResetAutoPick();
+            DressCabinet();
         }
         void ResetAutoPick()
         {
-            pickAxis=0; axisMoving=false; arrived=false; arrivalTime=0; impactUnit=null; contactAge=0; waitForRelease=true;
+            pickAxis=0; axisMoving=false; steerGoal=null; SteerDirection=Vector2Int.zero; impactUnit=null; contactAge=0; waitForRelease=true;
             crane.Speed=3.2f;
             if(AutoReturn && motion==Motion.Selecting) target=new Vector3(0,3.5f,0);
         }
@@ -114,7 +103,6 @@ namespace CraneTactics
             if(distance>.85f) held=null;
             grabQuality=held==null?0:GripProfile.Quality(held.Kind,distance);
             target=grabPoint+Vector3.up*1.2f; motion=Motion.Approaching; elapsed=0;
-            returnRoute=new ReturnRoute(grabPoint+Vector3.up*3.5f,Position(board.Pit,3.5f));
             RecordExperiment("approach");
         }
         bool ResolveAutoGrab()
@@ -129,29 +117,44 @@ namespace CraneTactics
                 if(board.Captured.Count>before) toast="PRIZE GET!  A missed grab pushed it into the chute.";
                 PlayTone(180,.12f); BeginPresentation(); return false;
             }
-            pickup=held.Cell; gripLimit=GripProfile.Seconds(held.Kind,grabQuality);
-            returnRoute=new ReturnRoute(new Vector3(grabPoint.x,3.5f,grabPoint.z),Position(board.Pit,3.5f)); routeIndex=1;
+            pickup=held.Cell; gripLimit=GripSeconds(held,grabQuality);
             RecordExperiment("grab-success"); PlayTone(480,.09f); return true;
         }
+        // Grid steps the claw can still carry the held toy before the grip gives out.
+        public float ReachRemaining => held==null?0:GripRemaining*cabinetProfile.ReturnSpeed;
+        // One axis at a time, like the cabinet's direction buttons: keys first, then a held lit dome.
+        Vector2Int PlayerSteer()
+        {
+            var m=controls.Movement;
+            if(m.sqrMagnitude>0) return Mathf.Abs(m.x)>=Mathf.Abs(m.y)?new Vector2Int(m.x>0?1:-1,0):new Vector2Int(0,m.y>0?1:-1);
+            if(!controls.MouseHeld) return Vector2Int.zero;
+            var point=new Vector2(controls.Pointer.x,Screen.height-controls.Pointer.y);
+            foreach(var button in SteerButtons) if(DeckHit(DeckButtonRect(button,Screen.width,Screen.height),point)) return SteerVector(button);
+            return Vector2Int.zero;
+        }
+        // Automation drives the same claw by giving it a point to head for, one axis at a time.
+        public void SteerTo(Vector3 point) {steerGoal=new Vector3(Mathf.Clamp(point.x,0,board.Size-1),3.5f,Mathf.Clamp(point.z,0,board.Size-1));}
         void TickExperiment(float dt)
         {
-            routeLine.enabled=AutoReturn && motion!=Motion.Result && motion!=Motion.Presenting;
             clawOpen=Mathf.MoveTowards(clawOpen,motion==Motion.Lifting || motion==Motion.Carrying?0:1,dt*4);
             for(int i=0;i<fingers.Count;i++) {var p=fingerPositions[i]; fingers[i].localPosition=new Vector3(p.x*Mathf.Lerp(.75f,1.3f,clawOpen),p.y,p.z*Mathf.Lerp(.75f,1.3f,clawOpen));}
             shadow.gameObject.SetActive(motion!=Motion.Result); shadow.position=new Vector3(crane.Head.x,.016f,crane.Head.z);
             if(!AutoReturn) return;
             if(!controls.Held) waitForRelease=false;
-            if(motion==Motion.Selecting && !Automation && !waitForRelease) PickInput(controls.Held && (controls.KeyboardAction || axisMoving || !OverHud()),dt);
-            var preview=motion==Motion.Selecting?new ReturnRoute(target,Position(board.Pit,3.5f)):returnRoute;
-            if(preview!=null) for(int i=0;i<3;i++) routeLine.SetPosition(i,new Vector3(preview.Points[i].x,.045f,preview.Points[i].z));
-            if(motion!=Motion.Carrying) {head.localRotation=Quaternion.identity; return;}
-            crane.Speed=cabinetProfile.ReturnSpeed;
-            if(!arrived)
+            if(motion==Motion.Selecting && !Automation && !waitForRelease) PickInput(controls.SpaceHeld || controls.MouseHeld && (axisMoving || PointerOnActiveDeckButton),dt);
+            bool carrying=motion==Motion.Carrying;
+            float reach=ReachRemaining;
+            foreach(var pair in reachMarkers)
             {
-                target=returnRoute.Points[routeIndex];
-                if(Vector3.Distance(crane.Head,target)<.04f) {if(routeIndex==1) routeIndex=2; else arrived=true;}
+                bool show=carrying && Mathf.Abs(pair.Key.X-crane.Head.x)+Mathf.Abs(pair.Key.Y-crane.Head.z)<=reach;
+                if(pair.Value.gameObject.activeSelf!=show) pair.Value.gameObject.SetActive(show);
             }
-            else {arrivalTime+=dt; if(arrivalTime>.65f && crane.LoadVelocity.magnitude<.5f) {RecordExperiment("chute-arrival"); Release();}}
+            if(!carrying) {SteerDirection=Vector2Int.zero; head.localRotation=Quaternion.identity; return;}
+            crane.Speed=cabinetProfile.ReturnSpeed;
+            SteerDirection=Automation?Vector2Int.zero:PlayerSteer();
+            if(Automation && steerGoal.HasValue) target=steerGoal.Value;
+            else if(SteerDirection!=Vector2Int.zero) target=new Vector3(Mathf.Clamp(crane.Head.x+SteerDirection.x,0,board.Size-1),3.5f,Mathf.Clamp(crane.Head.z+SteerDirection.y,0,board.Size-1));
+            else target=new Vector3(crane.Head.x,3.5f,crane.Head.z);
             var fraction=GripRemaining/gripLimit;
             head.localRotation=Quaternion.Euler(0,0,fraction<.25f?Mathf.Sin(Time.time*28)*8:0);
         }
@@ -183,20 +186,67 @@ namespace CraneTactics
                 case "settled": ClawActivity?.Invoke(ClawEvent.Settled,held); break;
             }
         }
+        // Plays one planned move like a careful player: carry one axis at a time, then either stop and
+        // let go once the swing settles, or let go on the move when the ring shows the planned cell and heading.
+        public IEnumerator PlayMove(CraneMove move,float timeout=20)
+        {
+            float end=Time.time+timeout;
+            var unit=board.Units[move.Unit];
+            if(move.Contact)
+            {
+                BeginAutoGrab(new Vector3(unit.Cell.X-move.Direction.X*BoardSolver.NudgeOffset,0,unit.Cell.Y-move.Direction.Y*BoardSolver.NudgeOffset));
+                while(!IsSelecting && !IsResult && Time.time<end) yield return null;
+                yield break;
+            }
+            Grab(unit);
+            while(!IsCarrying && Time.time<end) yield return null;
+            if(!IsCarrying) yield break;
+            var d=move.Direction; bool still=d.Equals(BoardSolver.StillDirection(pickup,move.Landing));
+            var stop=still?move.Landing:new Cell(move.Landing.X-d.X,move.Landing.Y-d.Y);
+            // Cross the axis that is not the final heading first, so the last leg runs along it.
+            var corner=d.X!=0?new Cell(pickup.X,stop.Y):new Cell(stop.X,pickup.Y);
+            foreach(var waypoint in new[]{corner,stop})
+            {
+                SteerTo(Position(waypoint,3.5f));
+                while(IsCarrying && Vector2.Distance(new Vector2(crane.Head.x,crane.Head.z),new Vector2(waypoint.X,waypoint.Y))>.02f && Time.time<end) yield return null;
+            }
+            bool Ready() => ForecastClear && ForecastCell.Equals(move.Landing) && ForecastDirection.Equals(move.Direction);
+            if(still)
+            {
+                while(IsCarrying && !(Ready() && crane.LoadVelocity.magnitude<NearRestThreshold*.8f) && GripRemaining>.12f && Time.time<end) yield return null;
+            }
+            else
+            {
+                // Let the swing from the earlier leg die down first, or it skews the throw.
+                while(IsCarrying && crane.LoadVelocity.magnitude>.3f && GripRemaining>1.2f && Time.time<end) yield return null;
+                var past=new Cell(move.Landing.X+d.X,move.Landing.Y+d.Y);
+                SteerTo(Position(board.Inside(past)?past:move.Landing,3.5f));
+                while(IsCarrying && !Ready() && Time.time<end) yield return null;
+            }
+            if(IsCarrying) Drop();
+            steerGoal=null;
+            while(!IsSelecting && !IsResult && Time.time<end) yield return null;
+        }
+        public IEnumerator CarryHome(Unit unit)
+        {
+            yield return PlayMove(new CraneMove {Unit=board.Units.IndexOf(unit),Landing=board.Pit,Direction=BoardSolver.StillDirection(unit.Cell,board.Pit)});
+        }
         public void ExportExperiment(string path) {File.WriteAllLines(path,experimentLog);}
+        public float GripSeconds(Unit unit,float quality) => GripProfile.Seconds(unit.Kind,quality)*unit.GripScale*(board.IsStuck(unit)?.6f:1);
+        void DrawLab(float x,float y)
+        {
+            float w=300,h=40,g=6; int row=0;
+            Rect Next() => new Rect(x,y+(h+g)*row++,w,h);
+            if(ArcadePill(Next(),AutoReturn?"Lab: switch to mouse free carry":"Lab: switch to cabinet buttons",amberPill)) SetAutoReturn(!AutoReturn);
+            if(ArcadePill(Next(),"Lab: save input log",amberPill)) ExportExperiment(Path.Combine(Application.persistentDataPath,"crane-experiment.jsonl"));
+            if(ArcadePill(Next(),"Case A: Heavy > enemy > chute",amberPill)) LoadExperimentCase(1);
+            if(ArcadePill(Next(),"Case B: hold to capture",amberPill)) LoadExperimentCase(2);
+            if(ArcadePill(Next(),"Case C: offset contact push",amberPill)) LoadExperimentCase(3);
+            if(ArcadePill(Next(),"Case D: Koromochi on classic",amberPill)) LoadExperimentCase(4);
+            if(ArcadePill(Next(),"Floor: "+cabinetProfile.Name+" (restart)",amberPill)) {cabinetOverride=cabinetProfile==CabinetProfile.Classic?CabinetProfile.Sweets:CabinetProfile.Classic; LoadStage(stage);}
+        }
         void DrawExperiment()
         {
-            GUI.Label(new Rect(26,80,360,24),AutoReturn?"B  AUTO RETURN  /  "+cabinetProfile.Name:"A  FREE CARRY  /  Esc: experiments",small);
-            if(paused)
-            {
-                if(GUI.Button(new Rect(24,110,245,32),AutoReturn?"Experiment B → A (restart)":"Experiment A → B (restart)")) SetAutoReturn(!AutoReturn);
-                if(GUI.Button(new Rect(24,150,245,32),"Save input / result log")) ExportExperiment(Path.Combine(Application.persistentDataPath,"crane-experiment.jsonl"));
-                if(GUI.Button(new Rect(24,190,245,32),"CASE A: Heavy → enemy → chute")) LoadExperimentCase(1);
-                if(GUI.Button(new Rect(24,230,245,32),"CASE B: Hold to capture")) LoadExperimentCase(2);
-                if(GUI.Button(new Rect(24,270,245,32),"CASE C: Offset contact push")) LoadExperimentCase(3);
-                if(GUI.Button(new Rect(24,310,245,32),"Koromochi: slippery round toy")) LoadExperimentCase(4);
-                if(GUI.Button(new Rect(24,350,245,32),cabinetProfile.Name+" floor (switch + restart)")) {cabinetProfile=cabinetProfile==CabinetProfile.Classic?CabinetProfile.Sweets:CabinetProfile.Classic; LoadStage(stage);}
-            }
             if(AutoReturn && !paused && motion!=Motion.Result) DrawReturnHud();
         }
     }

@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace CraneTactics.Rules
 {
-    public enum Kind { Knight, Heavy, Slimy, Scout, Guard, Koromochi }
+    public enum Kind { Knight, Heavy, Slimy, Scout, Guard, Koromochi, Petapetan, Clockwork }
     public enum Outcome { Playing, Victory, Defeat, Recruited }
     public struct Cell : IEquatable<Cell>
     {
@@ -23,7 +23,10 @@ namespace CraneTactics.Rules
         public bool Alive => Hp > 0;
         public bool Hostile;
         public bool Enemy => Hostile || Kind == Kind.Scout || Kind == Kind.Guard;
-        public int Damage => Kind == Kind.Slimy || Kind == Kind.Koromochi ? 0 : Kind == Kind.Heavy ? 2 : 1;
+        public int Damage => Kind == Kind.Slimy || Kind == Kind.Koromochi || Kind == Kind.Petapetan ? 0 : Kind == Kind.Heavy ? 2 : 1;
+        public bool Metal => Kind == Kind.Knight || Kind == Kind.Guard || Kind == Kind.Clockwork;
+        public float GripScale = 1;
+        public Cell Facing = new Cell(1,0); public int Wind = BoardState.ClockworkWind;
         public float HoldSeconds => Kind == Kind.Heavy ? 5 : Enemy ? 3 : float.PositiveInfinity;
     }
     public sealed class Intent
@@ -47,7 +50,7 @@ namespace CraneTactics.Rules
         public readonly IReadOnlyList<UnitPose> Poses;
         public ResolutionBeat(string label,Unit actor,Unit target,UnitPose[] poses) {Label=label; Actor=actor; Target=target; Poses=Array.AsReadOnly(poses);}
     }
-    public sealed class BoardState
+    public sealed partial class BoardState
     {
         public readonly List<Unit> Units = new List<Unit>();
         public readonly List<Kind> Captured = new List<Kind>();
@@ -61,7 +64,8 @@ namespace CraneTactics.Rules
         static readonly Cell[] Directions = {new Cell(0,-1),new Cell(0,1),new Cell(-1,0),new Cell(1,0)};
         public static BoardState Create(int stage)
         {
-            var b = new BoardState {Stage=stage, Size=stage==1?4:6, Pit=stage==0?new Cell(5,2):stage==1?new Cell(3,3):new Cell(5,3)};
+            if(stage>2) return FromDefinition(stage,CabinetCatalog.Stage(stage));
+            var b = new BoardState {Stage=stage, Size=stage==1?4:6, Pit=stage==0?new Cell(5,2):stage==1?new Cell(3,3):new Cell(5,3), IsPrize=stage==1, Par=stage==1?1:2};
             if(stage==0) { b.Add(Kind.Knight,1,4,3); b.Add(Kind.Heavy,1,3,3); b.Add(Kind.Scout,3,3,1); b.Add(Kind.Guard,4,1,2); }
             if(stage==1) b.Add(Kind.Slimy,1,1,2);
             if(stage==2) { b.Add(Kind.Knight,1,2,3); b.Add(Kind.Heavy,0,4,3); b.Add(Kind.Slimy,2,3,2); b.Add(Kind.Scout,1,1,2).Attack=2; b.Add(Kind.Guard,4,3,2); }
@@ -79,10 +83,10 @@ namespace CraneTactics.Rules
             if(!released || token!=pending || Outcome!=Outcome.Playing) return false;
             BeginResolution();
             released=false;
-            if(contacted!=null && contacted.Alive && contacted.Kind!=Kind.Heavy)
+            if(contacted!=null && contacted.Alive && contacted.Kind!=Kind.Heavy && !IsStuck(contacted))
             {
                 var next=contacted.Cell+direction;
-                if(Inside(next) && At(next)==null) {if(next.Equals(Pit)) {Capture(contacted); if(Stage==1) Outcome=Outcome.Recruited;} else contacted.Cell=next;}
+                if(Inside(next) && At(next)==null) {if(next.Equals(Pit)) Capture(contacted); else contacted.Cell=next;}
             }
             Beat("contact",null,contacted); Finish(); return true;
         }
@@ -95,18 +99,21 @@ namespace CraneTactics.Rules
         {
             return Enumerable.Range(0,Size*Size).Select(i=>new Cell(i%Size,i/Size)).Where(p=>Empty(p,except)).OrderBy(p=>p.Distance(c)).ThenBy(p=>p.Y).ThenBy(p=>p.X).First();
         }
-        void Capture(Unit unit) {if(unit.Enemy) Captured.Add(unit.Kind); capturedThisAction.Add(unit); unit.Hp=0;}
+        void Capture(Unit unit) {if(unit.Enemy) Captured.Add(unit.Kind); capturedThisAction.Add(unit); unit.Hp=0; if(IsPrize) Outcome=Outcome.Recruited;}
         public bool Resolve(int token,Unit dropper,Cell landing,Cell direction,bool directionalImpact=false)
         {
             if(!released || token!=pending || Outcome!=Outcome.Playing || !dropper.Alive) return false;
             BeginResolution();
             released=false; landing=new Cell(Math.Max(0,Math.Min(Size-1,landing.X)),Math.Max(0,Math.Min(Size-1,landing.Y)));
+            landing=ApplyLandingTerrain(dropper,landing,direction);
+            if(dropper.Kind==Kind.Clockwork) {dropper.Facing=direction; dropper.Wind=ClockworkWind;}
             var impactTarget=At(landing,dropper);
-            if(landing.Equals(Pit)) {Capture(dropper); if(Stage==1) Outcome=Outcome.Recruited;}
+            if(landing.Equals(Pit)) {if(dropper.Enemy) DirectCaptures++; Capture(dropper);}
             else
             {
                 var target=At(landing,dropper);
-                if(target!=null && (dropper.Kind==Kind.Slimy || dropper.Kind==Kind.Koromochi))
+                if(dropper.Kind==Kind.Petapetan) LandPetapetan(dropper,target,landing,direction);
+                else if(target!=null && (dropper.Kind==Kind.Slimy || dropper.Kind==Kind.Koromochi))
                 {
                     var pushed=landing+direction;
                     if(Inside(pushed) && At(pushed,dropper)==null) { if(pushed.Equals(Pit)) Capture(target); else target.Cell=pushed; dropper.Cell=landing; }
@@ -114,21 +121,34 @@ namespace CraneTactics.Rules
                 }
                 else
                 {
-                    if(target!=null) { target.Hp-=dropper.Damage; if(target.Alive) {var pushed=landing+direction; if(directionalImpact && Inside(pushed) && At(pushed,dropper)==null) {if(pushed.Equals(Pit)) Capture(target); else target.Cell=pushed;} else {var choices=Directions.Select(d=>landing+d).Where(c=>Empty(c,dropper)).ToList(); if(choices.Count>0) target.Cell=choices[0]; else {dropper.Cell=Nearest(landing,dropper); Beat("impact",dropper,impactTarget); Finish(); return true;} } } }
-                    dropper.Cell=landing;
+                    bool blocked=false;
+                    if(target!=null) { target.Hp-=dropper.Damage; if(target.Alive) {var pushed=landing+direction; if(directionalImpact && Inside(pushed) && At(pushed,dropper)==null) {if(pushed.Equals(Pit)) Capture(target); else target.Cell=pushed;} else {var choices=Directions.Select(d=>landing+d).Where(c=>Empty(c,dropper)).ToList(); if(choices.Count>0) target.Cell=choices[0]; else {dropper.Cell=Nearest(landing,dropper); blocked=true;} } } }
+                    if(!blocked) dropper.Cell=landing;
                 }
+                Beat("impact",dropper,impactTarget);
+                SlideAfterImpact(dropper,impactTarget,direction);
+                Finish(); return true;
             }
             Beat("impact",dropper,impactTarget); Finish(); return true;
         }
         void Finish()
         {
             Revision++;
-            if(Stage==1 || CheckEnd()) return;
-            var knight=Units.FirstOrDefault(u=>u.Alive && u.Kind==Kind.Knight);
+            if(IsPrize) {RunFloorMachines(); return;}
+            if(CheckEnd()) return;
+            var knight=Units.FirstOrDefault(u=>u.Alive && u.Kind==Kind.Knight && !IsStuck(u));
             if(knight!=null) {var target=Units.Where(u=>u.Alive && u.Enemy && u.Cell.Distance(knight.Cell)==1).OrderBy(u=>u.Hp).ThenBy(u=>u.Cell.Y).ThenBy(u=>u.Cell.X).FirstOrDefault(); if(target!=null) {target.Hp--; Beat("knight",knight,target);}}
             if(CheckEnd()) return;
+            RunFloorMachines(); if(CheckEnd()) return;
+            RunClockworks(); if(CheckEnd()) return;
             var plan=Plan();
-            if(plan.Actor!=null) { if(plan.Attacks) plan.Target.Hp-=plan.Actor.Attack; else plan.Actor.Cell=plan.Destination; Beat(plan.Attacks?"enemy-attack":"enemy-step",plan.Actor,plan.Attacks?plan.Target:null); }
+            if(plan.Actor!=null)
+            {
+                var stepDirection=new Cell(plan.Destination.X-plan.Actor.Cell.X,plan.Destination.Y-plan.Actor.Cell.Y);
+                if(plan.Attacks) plan.Target.Hp-=plan.Actor.Attack; else plan.Actor.Cell=plan.Destination;
+                Beat(plan.Attacks?"enemy-attack":"enemy-step",plan.Actor,plan.Attacks?plan.Target:null);
+                if(!plan.Attacks) SlideOnFrosting(plan.Actor,stepDirection);
+            }
             CheckEnd();
         }
         bool CheckEnd()
@@ -140,8 +160,8 @@ namespace CraneTactics.Rules
         public Intent Plan()
         {
             var allies=Units.Where(u=>u.Alive && !u.Enemy).ToList();
-            if(allies.Count==0 || Stage==1) return new Intent();
-            var actor=Units.Where(u=>u.Alive && u.Enemy).OrderBy(u=>allies.Any(a=>a.Cell.Distance(u.Cell)==1)?0:1).ThenBy(u=>allies.Min(a=>a.Cell.Distance(u.Cell))).ThenBy(u=>u.Id,StringComparer.Ordinal).FirstOrDefault();
+            if(allies.Count==0 || IsPrize) return new Intent();
+            var actor=Units.Where(u=>u.Alive && u.Enemy && u.Kind!=Kind.Clockwork && !IsStuck(u)).OrderBy(u=>allies.Any(a=>a.Cell.Distance(u.Cell)==1)?0:1).ThenBy(u=>allies.Min(a=>a.Cell.Distance(u.Cell))).ThenBy(u=>u.Id,StringComparer.Ordinal).FirstOrDefault();
             if(actor==null) return new Intent();
             var target=allies.Where(a=>a.Cell.Distance(actor.Cell)==1).OrderBy(a=>a.Hp).ThenBy(a=>a.Id,StringComparer.Ordinal).FirstOrDefault();
             if(target!=null) return new Intent {Actor=actor,Target=target,Attacks=true};

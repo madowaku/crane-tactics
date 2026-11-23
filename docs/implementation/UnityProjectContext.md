@@ -13,7 +13,7 @@
 
 Open this repository in Unity 6000.3.9f1. Open `Assets/_CraneTactics/Scenes/OneNight.unity`, then Play. If regenerating the scene, use **Crane Tactics > Create OneNight Scene**. The command imports the toy prefabs only after the FBX one-metre probe passes.
 
-Click a toy to auto-grab. Move the pointer across the floor to carry, then click or Space to release. WASD/arrows move the claw; Space selects the toy under its footprint. Esc pauses. Sound starts off. Retry resets only the current cabinet; the Battle 2 roster always retains Slimy. Completion offers replay.
+Normal play now starts on the glowing cabinet buttons: aim with 1 → and 2 ↑, carry the held toy anywhere with ← ↓ → ↑ (or arrows/WASD) until DROP/Space or the grip gives out; see [Arcade cabinets](ARCADE_CABINETS.md). In mouse free carry (pause → LAB): click a toy to auto-grab, move the pointer across the floor to carry, then click or Space to release. WASD/arrows move the claw; Space selects the toy under its footprint. Esc pauses. Sound starts off. Retry resets only the current cabinet; the Battle 2 roster always retains Slimy. Completion offers replay.
 
 The gold footprint estimates landing from current horizontal momentum; it is deliberately not a guaranteed cell. The green bar shows Slimy's push direction. Discrete rules settle by centre position and clamp coordinate ties toward the higher cell. Enemy movement tries Y before X. A spring drives visible carried motion; Rigidbody/PhysX drives the drop. A 2-second fallback prevents indefinitely unsettled drops.
 

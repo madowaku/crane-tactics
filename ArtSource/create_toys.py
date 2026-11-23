@@ -11,7 +11,7 @@ bpy.ops.object.select_all(action='SELECT')
 bpy.ops.object.delete(use_global=False)
 bpy.context.scene.unit_settings.system='METRIC'
 bpy.context.scene.unit_settings.scale_length=1
-colors={'ivory':(.87,.81,.64,1),'teal':(.08,.32,.33,1),'brass':(.83,.51,.15,1),'clay':(.65,.23,.12,1),'mint':(.2,.74,.48,1),'ink':(.025,.045,.05,1),'face':(.92,.69,.4,1),'indigo':(.19,.2,.37,1)}
+colors={'ivory':(.87,.81,.64,1),'teal':(.08,.32,.33,1),'brass':(.83,.51,.15,1),'clay':(.65,.23,.12,1),'mint':(.2,.74,.48,1),'ink':(.025,.045,.05,1),'face':(.92,.69,.4,1),'indigo':(.19,.2,.37,1),'mochi':(.96,.66,.74,1),'blush':(.9,.32,.42,1),'gumpink':(.82,.13,.55,1),'tin':(.56,.62,.68,1),'tinred':(.72,.14,.12,1)}
 mats={}
 for name,color in colors.items():
     m=bpy.data.materials.new(name); m.diffuse_color=color; m.use_nodes=True
@@ -95,6 +95,35 @@ for name,guard in [('Scout',False),('Guard',True)]:
         bpy.context.object.data.materials.append(mats['indigo']); objects.append(bpy.context.object)
         shape('Wizard brim',(0,0,.72),(.85,.65,.1),'indigo')
     export(name)
+
+# Koromochi: a soft round rice-cake toy. Narrow grip and round silhouette read as "will roll".
+shape('Koromochi body',(0,0,.3),(.62,.62,.58),'mochi')
+for side in [-1,1]:
+    shape('Koromochi ear',(side*.2,.03,.6),(.15,.13,.2),'mochi')
+    shape('Koromochi eye',(side*.13,-.285,.36),(.065,.04,.09),'ink')
+    shape('Koromochi cheek',(side*.21,-.25,.26),(.1,.04,.06),'blush')
+export('Koromochi')
+# Petapetan: flat five-armed gum star, unmistakably low and sticky from the fixed camera.
+shape('Petapetan core',(0,0,.17),(.46,.46,.3),'gumpink')
+for i in range(5):
+    angle=math.pi/2+i*math.tau/5
+    shape('Petapetan arm',(math.cos(angle)*.3,math.sin(angle)*.3,.09),(.3,.3,.16),'gumpink')
+for side in [-1,1]:
+    shape('Petapetan eye white',(side*.1,-.2,.3),(.14,.08,.15),'ivory')
+    shape('Petapetan eye',(side*.1,-.235,.3),(.07,.04,.09),'ink')
+export('Petapetan')
+# Clockwork: boxy tin robot with a big key; the key is on its back, its front faces -Y.
+shape('Clockwork torso',(0,0,.34),(.5,.42,.46),'tin','cube')
+shape('Clockwork head',(0,0,.7),(.4,.36,.28),'tin','cube')
+shape('Clockwork visor',(0,-.18,.71),(.3,.05,.11),'ink','cube')
+shape('Clockwork chest',(0,-.215,.36),(.22,.03,.16),'tinred','cube')
+shape('Clockwork antenna',(0,0,.92),(.06,.06,.18),'brass','cube')
+shape('Clockwork bulb',(0,0,1.03),(.11,.11,.11),'tinred')
+for side in [-1,1]:
+    shape('Clockwork foot',(side*.14,-.02,.07),(.19,.32,.14),'tinred','cube')
+    shape('Clockwork key wing',(side*.17,.34,.42),(.22,.05,.17),'brass')
+shape('Clockwork key stem',(0,.27,.42),(.06,.16,.06),'brass','cube')
+export('Clockwork')
 
 # Decorative cabinet only; the runtime owns collision rails and the visible grid/chute.
 shape('Cabinet body',(2.5,2.5,-.65),(7,7,.85),'teal','cube')

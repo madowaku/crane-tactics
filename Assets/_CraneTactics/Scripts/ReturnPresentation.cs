@@ -11,13 +11,14 @@ namespace CraneTactics
         readonly Dictionary<Unit,int> displayedHp=new Dictionary<Unit,int>();
         IReadOnlyList<ResolutionBeat> playback;
         int beatIndex;
-        float beatTime;
+        float beatTime, hitStop, shake;
+        bool shakeEnabled=true;
         public string PresentationPhase {get;private set;}="";
         public int VisibleHp(Unit unit) => displayedHp.TryGetValue(unit,out int hp)?hp:unit.Hp;
 
         void ClearPresentation()
         {
-            playback=null; beatStarts.Clear(); displayedHp.Clear(); beatIndex=0; beatTime=0; PresentationPhase="";
+            playback=null; beatStarts.Clear(); displayedHp.Clear(); popups.Clear(); visuals.Clear(); beatIndex=0; beatTime=hitStop=shake=0; PresentationPhase="";
         }
         void BeginPresentation()
         {
@@ -32,16 +33,20 @@ namespace CraneTactics
             beatTime=0; beatStarts.Clear();
             foreach(var pair in actors) beatStarts[pair.Key]=pair.Value.transform.position;
             PresentationPhase=playback[beatIndex].Label;
+            var opening=playback[beatIndex];
+            if(opening.Label=="impact" && opening.Target!=null && opening.Actor?.Kind==Kind.Heavy) {hitStop=.065f; shake=shakeEnabled?.16f:0;}
+            if(opening.Label=="clock-dash" && opening.Target!=null) shake=shakeEnabled?.1f:0;
             RecordExperiment("visual-"+PresentationPhase);
         }
         void TickPresentation(float dt)
         {
             if(playback==null || beatIndex>=playback.Count) return;
+            if(hitStop>0) {hitStop-=dt; return;}
             beatTime+=dt;
             var beat=playback[beatIndex];
             bool contact=beat.Label=="impact" || beat.Label=="contact";
             bool hasCapture=beat.Poses.Any(p=>p.Captured && actors[p.Unit].activeSelf);
-            float duration=contact?(hasCapture?1.05f:.62f):.4f;
+            float duration=hasCapture?1.05f:contact?.62f:.4f;
             float move=Mathf.SmoothStep(0,1,Mathf.Clamp01((beatTime-(contact?.12f:0))/(contact?.38f:.4f)));
             foreach(var pose in beat.Poses)
             {
@@ -77,6 +82,7 @@ namespace CraneTactics
                 actor.transform.position=position;
                 if(beatTime>=duration)
                 {
+                    if(displayedHp.TryGetValue(pose.Unit,out int shown) && pose.Hp<shown && !pose.Captured) AddPopup(actor.transform.position,$"-{shown-pose.Hp}",pose.Unit.Enemy?new Color(1,.85f,.35f):new Color(1,.45f,.4f));
                     displayedHp[pose.Unit]=pose.Hp;
                     actor.transform.rotation=Quaternion.identity; actor.transform.localScale=Vector3.one;
                     if(pose.Hp<=0) actor.SetActive(false);
@@ -93,14 +99,15 @@ namespace CraneTactics
             if(!AutoReturn) return;
             float mid=(board.Size-1)/2f;
             bool transport=motion==Motion.Carrying || motion==Motion.Lifting || motion==Motion.Approaching;
-            var focus=new Vector3(mid,transport?1.25f:.85f,mid);
+            var focus=new Vector3(mid,transport?.95f:.55f,mid);
             if(transport) focus+=new Vector3(crane.Head.x-mid,0,crane.Head.z-mid)*.10f;
             float blend=1-Mathf.Exp(-dt*3);
             var offset=new Vector3(3.8f,11,-10.5f);
             view.transform.position=Vector3.Lerp(view.transform.position,focus+offset,blend);
+            if(shake>0) {shake=Mathf.Max(0,shake-dt); view.transform.position+=new Vector3(Mathf.Sin(Time.time*71),Mathf.Sin(Time.time*93),0)*shake*.5f;}
             view.transform.rotation=Quaternion.Slerp(view.transform.rotation,Quaternion.LookRotation(-offset),blend);
             // Reserve the bottom HUD strip; fit the full board on narrower windows too.
-            float size=(board.Size==4?3.15f:3.95f)+(transport?.18f:0);
+            float size=(board.Size==4?3.55f:4.3f)+(transport?.18f:0);
             size=Mathf.Max(size,(board.Size+1.3f)/(2*Mathf.Max(.65f,view.aspect)));
             view.orthographicSize=Mathf.Lerp(view.orthographicSize,size,blend);
         }
@@ -112,36 +119,41 @@ namespace CraneTactics
             GUI.color=Color.white; var previous=small.normal.textColor; small.normal.textColor=color;
             GUI.Label(new Rect(rect.x+7,rect.y+2,width-10,24),label,small); small.normal.textColor=previous;
         }
+        string PhaseLabel()
+        {
+            switch(PresentationPhase)
+            {
+                case "enemy-step": return "ENEMY MOVES"; case "enemy-attack": return "ENEMY ATTACKS"; case "knight": return "KNIGHT ATTACKS";
+                case "bounce": return "JELLY BOUNCE"; case "slide": return "ICING SLIDE"; case "magnet": return "MAGNET PULL";
+                case "belt": return "BELT MOVES"; case "clock-dash": return "WIND-UP DASH"; default: return "IMPACT";
+            }
+        }
         void DrawReturnHud()
         {
             WorldTag(Position(board.Pit,.1f)+Vector3.right*.85f,"HOME / CAPTURE",new Color(1,.82f,.4f),135);
             if(held!=null && (motion==Motion.Carrying || motion==Motion.Lifting))
-                WorldTag(crane.Head+Vector3.up*.5f,held.Kind.ToString().ToUpperInvariant()+" / HELD",cream,145);
-            float w=Mathf.Min(940,Screen.width-40), x=(Screen.width-w)/2, y=Screen.height-94;
-            GUI.color=new Color(.025f,.065f,.075f,.97f); GUI.DrawTexture(new Rect(x,y,w,78),Texture2D.whiteTexture); GUI.color=Color.white;
-            string state=motion==Motion.Selecting?"01  AIM":motion==Motion.Approaching?"02  CONTACT":motion==Motion.Lifting?"03  LIFT":motion==Motion.Carrying?"04  RETURN":motion==Motion.Falling?"05  DROP":"06  "+(PresentationPhase=="enemy-step"?"ENEMY MOVES":PresentationPhase=="enemy-attack"?"ENEMY ATTACKS":PresentationPhase=="knight"?"KNIGHT ATTACKS":"IMPACT → CAPTURE");
-            GUI.Label(new Rect(x+16,y+8,255,25),state,text);
-            string detail;
+                WorldTag(crane.Head+Vector3.up*.5f,DisplayName(held.Kind).ToUpperInvariant()+" / HELD",CabinetProfile.Classic.TileA,165);
+            string state=motion==Motion.Selecting?(pickAxis==0?"HOLD BUTTON 1":"HOLD BUTTON 2"):motion==Motion.Approaching?"CLAW DESCENDS":motion==Motion.Lifting?"LIFTING":motion==Motion.Carrying?"CARRY, THEN DROP":motion==Motion.Falling?"DROP":PhaseLabel();
+            string instruction,detail;
             if(motion==Motion.Selecting)
             {
                 var candidate=board.Units.Where(u=>u.Alive).OrderBy(u=>Vector2.Distance(new Vector2(u.Cell.X,u.Cell.Y),new Vector2(target.x,target.z))).FirstOrDefault();
                 float quality=candidate==null?0:GripProfile.Quality(candidate.Kind,Vector2.Distance(new Vector2(candidate.Cell.X,candidate.Cell.Y),new Vector2(target.x,target.z)));
-                detail=quality>=.3f?$"{candidate.Kind}  ·  GRIP {GripProfile.Seconds(candidate.Kind,quality):0.0}s":"Aim for the center of a toy";
-                GUI.Label(new Rect(x+280,y+8,w-300,25),PickHint+"  /  release to lock",text);
+                instruction=quality>=GripProfile.SlipBelowQuality?$"{DisplayName(candidate.Kind)}: {AbilityText(candidate.Kind)}  ·  GRIP {GripSeconds(candidate,quality):0.0}s":pickAxis==0?"Hold to slide right, let go to lock. Space works too.":"Hold to move into the cabinet, let go to descend.";
+                detail=board.IsPrize?"Unlimited tries. Bring your new friend home.":"Rival intent: "+board.Plan();
             }
             else
             {
-                detail=held==null?"Claw contact → board changes":$"{held.Kind}  ·  {(held.Damage==0?"PUSH 1 TILE":"IMPACT "+held.Damage)}";
-                GUI.Label(new Rect(x+280,y+8,w-300,25),motion==Motion.Carrying?"Space / click: DROP NOW   ·   Wait: HOME CAPTURE":motion==Motion.Presenting?"Watch the result — next move follows":"Follow the claw and the gold landing ring",text);
+                instruction=held==null?"The claw brushed the board. Watch what moved.":$"{DisplayName(held.Kind)}: {AbilityText(held.Kind)}";
+                detail=motion==Motion.Carrying?$"Hold ← ↓ → ↑ (or arrow keys) to carry. Gold dots: reach {ReachRemaining:0.0} steps. DROP lets go.":motion==Motion.Presenting?"One release. One resolved turn.":"Watch the claw and the landing ring.";
             }
-            GUI.Label(new Rect(x+16,y+41,260,24),detail,small);
-            GUI.Label(new Rect(x+280,y+41,w-300,24),stage==1?"Unlimited tries. Bring Slimy home.":motion==Motion.Presenting?"One release. One resolved turn.":experimentCase==1?"Heavy → Guard → chute; Knight finishes Heavy.":experimentCase==2?"Short route, lone rival: hold to capture safely.":"After landing (may change): "+board.Plan(),small);
+            DrawDeck(state,instruction,detail);
             if(held!=null && (motion==Motion.Carrying || motion==Motion.Lifting))
             {
-                float fraction=Mathf.Clamp01(GripRemaining/gripLimit);
-                GUI.color=new Color(.2f,.28f,.28f); GUI.DrawTexture(new Rect(x,y-8,w,5),Texture2D.whiteTexture);
-                GUI.color=fraction<.25f?new Color(1,.35f,.15f):gold; GUI.DrawTexture(new Rect(x,y-8,w*fraction,5),Texture2D.whiteTexture); GUI.color=Color.white;
-                WorldTag(crane.Head+Vector3.up*.85f,$"GRIP {GripRemaining:0.0}s → HOME",fraction<.25f?new Color(1,.5f,.3f):gold,165);
+                float fraction=Mathf.Clamp01(GripRemaining/gripLimit), barY=Screen.height-DeckHeight-8;
+                GUI.color=new Color(.2f,.28f,.28f); GUI.DrawTexture(new Rect(0,barY,Screen.width,6),Texture2D.whiteTexture);
+                GUI.color=fraction<.25f?new Color(1,.35f,.15f):new Color(1,.8f,.35f); GUI.DrawTexture(new Rect(0,barY,Screen.width*fraction,6),Texture2D.whiteTexture); GUI.color=Color.white;
+                WorldTag(crane.Head+Vector3.up*.85f,$"GRIP {GripRemaining:0.0}s",fraction<.25f?new Color(1,.5f,.3f):new Color(1,.8f,.35f),100);
             }
         }
     }
